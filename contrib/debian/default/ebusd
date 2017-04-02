@@ -2,7 +2,7 @@
 # config file for ebusd service.
 
 # Options to pass to ebusd (run "ebusd -?" for more info):
-EBUSD_OPTS="--scanconfig"
+EBUSD_OPTS="--scanconfig --httpport=8880 --mqtthost=mqtt-node --mqttport=1883"
 
 # In order to run multiple ebusd instances, simply define several EBUSD_OPTS
 # with a unique suffix for each.
