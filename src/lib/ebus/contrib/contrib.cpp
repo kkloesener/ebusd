@@ -1,6 +1,6 @@
 /*
  * ebusd - daemon for communication with eBUS heating systems.
- * Copyright (C) 2016 John Baier <ebusd@ebusd.eu>
+ * Copyright (C) 2016-2017 John Baier <ebusd@ebusd.eu>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,11 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "tem.h"
+#include "lib/ebus/contrib/contrib.h"
+#include "lib/ebus/contrib/tem.h"
 
-using namespace std;
+namespace ebusd {
 
 bool libebus_contrib_register() {
-	contrib_tem_register();
-	return true;
+  contrib_tem_register();
+  return true;
 }
+
+}  // namespace ebusd

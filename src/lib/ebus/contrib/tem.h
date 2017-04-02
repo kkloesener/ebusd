@@ -1,6 +1,6 @@
 /*
  * ebusd - daemon for communication with eBUS heating systems.
- * Copyright (C) 2016 John Baier <ebusd@ebusd.eu>
+ * Copyright (C) 2016-2017 John Baier <ebusd@ebusd.eu>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,12 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIBEBUS_CONTRIB_TEM_H_
-#define LIBEBUS_CONTRIB_TEM_H_
+#ifndef LIB_EBUS_CONTRIB_TEM_H_
+#define LIB_EBUS_CONTRIB_TEM_H_
 
-#include "symbol.h"
-#include "result.h"
-#include "datatype.h"
 #include <string>
 #include <iostream>
 #include <sstream>
@@ -29,41 +26,41 @@
 #include <vector>
 #include <list>
 #include <map>
+#include "lib/ebus/symbol.h"
+#include "lib/ebus/result.h"
+#include "lib/ebus/datatype.h"
 
-/** @file tem.h
- * Contributed data types for TEM devices not part of regular releases.
+namespace ebusd {
+
+/** @file lib/ebus/contrib/tem.h
+ * Contributed data types for TEM devices not necessarily part of regular releases.
  */
-
-using namespace std;
 
 /**
  * A special variant of @a NumberDataType for TEM/Dungs ParamID in master/slave
  * data.
  */
-class TemParamDataType : public NumberDataType
-{
-public:
+class TemParamDataType : public NumberDataType {
+ public:
+  /**
+   * Constructs a new instance.
+   * @param id the type identifier.
+   */
+  explicit TemParamDataType(const string id)
+    : NumberDataType(id, 16, 0, 0xffff, 0, 0xffff, 0) {}
 
-	/**
-	 * Constructs a new instance.
-	 * @param id the type identifier.
-	 */
-	TemParamDataType(const string id)
-		: NumberDataType(id, 16, 0, 0xffff, 0, 0xffff, 0) {}
+  // @copydoc
+  result_t derive(int divisor, size_t bitCount, NumberDataType* &derived) override;
 
-	// @copydoc
-	virtual result_t derive(int divisor, unsigned char bitCount, NumberDataType* &derived);
+  // @copydoc
+  result_t readSymbols(SymbolString& input,
+    const size_t offset, const size_t length,
+    ostringstream& output, OutputFormat outputFormat) override;
 
-	// @copydoc
-	virtual result_t readSymbols(SymbolString& input, const bool isMaster,
-		const unsigned char offset, const unsigned char length,
-		ostringstream& output, OutputFormat outputFormat);
-
-	// @copydoc
-	virtual result_t writeSymbols(istringstream& input,
-		const unsigned char offset, const unsigned char length,
-		SymbolString& output, const bool isMaster, unsigned char* usedLength);
-
+  // @copydoc
+  result_t writeSymbols(istringstream& input,
+    const size_t offset, const size_t length,
+    SymbolString& output, size_t* usedLength) override;
 };
 
 /**
@@ -71,4 +68,6 @@ public:
  */
 void contrib_tem_register();
 
-#endif // LIBEBUS_CONTRIB_TEM_H_
+}  // namespace ebusd
+
+#endif  // LIB_EBUS_CONTRIB_TEM_H_

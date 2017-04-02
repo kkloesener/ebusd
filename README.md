@@ -22,24 +22,25 @@ The main features of the daemon are:
  * scan for bus participants
  * parse messages to human readable values by using CSV message configuration files
  * automatically pick CSV message configuration files by scan result
- * grab all messages on the eBUS
+ * grab all messages on the eBUS and provide decoding hints
  * log messages and problems to a log file
  * capture sent/received bytes to a log file as text
  * dump received bytes to binary files for later playback/analysis
  * listen for client connections on a dedicated TCP port (command line style and/or HTTP)
  * optionally format messages and data in JSON on dedicated HTTP port
- * optionally publish all received message data to MQTT topics and vice versa
+ * optionally publish received message data to MQTT topics and vice versa (if authorized)
+ * optional ACL and required user authentication for access to certain messages
+
 
 Installation
 ------------
 
-Either pick the latest release package suitable for your system
-(see https://github.com/john30/ebusd/releases/latest) or build it yourself.
+Either pick the [latest release package](https://github.com/john30/ebusd/releases/latest)
+suitable for your system or build it yourself.
 
 Building ebusd from the source requires the following packages and/or features:
- * autoconf (>=2.63)
- * automake (>=1.11)
- * g++
+ * autoconf (>=2.63) + automake (>=1.11) or cmake
+ * g++ with C++11 support (>=4.8.1)
  * make
  * kernel with pselect or ppoll support
  * glibc with argp support or argp-standalone
@@ -64,6 +65,17 @@ The most important part of each ebusd installation is the message
 configuration. By default, only rudimentary messages are interpreted.
 Check the Wiki and/or the configuration repository:
 > https://github.com/john30/ebusd-configuration
+
+
+Docker image
+------------
+
+A Docker image is available on the hub and it contains the latest German configuration files.
+You can use it like this:  
+> docker pull john30/ebusd  
+> docker run -it --rm --device=/dev/ttyUSB0 -p 8888 john30/ebusd
+
+For more details, see [Docker Readme](https://github.com/john30/ebusd/blob/master/contrib/docker/README.md).
 
 
 Contact

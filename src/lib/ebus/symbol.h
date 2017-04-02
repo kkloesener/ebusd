@@ -1,6 +1,6 @@
 /*
  * ebusd - daemon for communication with eBUS heating systems.
- * Copyright (C) 2014-2016 John Baier <ebusd@ebusd.eu>
+ * Copyright (C) 2014-2017 John Baier <ebusd@ebusd.eu>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,21 +16,25 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIBEBUS_SYMBOL_H_
-#define LIBEBUS_SYMBOL_H_
+#ifndef LIB_EBUS_SYMBOL_H_
+#define LIB_EBUS_SYMBOL_H_
 
-#include "result.h"
 #include <cstring>
 #include <cstdlib>
 #include <sstream>
 #include <queue>
+#include <string>
+#include <vector>
+#include "lib/ebus/result.h"
 
-/** @file symbol.h
+namespace ebusd {
+
+/** @file lib/ebus/symbol.h
  * Classes, functions, and constants related to symbols on the eBUS.
  *
- * The @a SymbolString class is used for escaping or unescaping a sequence of
- * bytes in preparation for sending to the bus or after reception of bytes from
- * the bus, as well as calculating and verifying the CRC of a message part.
+ * The @a SymbolString class is used for holding a sequence of bytes received
+ * from or sent to the bus, as well as calculating and verifying the CRC of a
+ * message part.
  *
  * A message on the bus always consists of a command part, i.e. the data sent
  * from a master to the bus. The command part starts with the sending master
@@ -61,148 +65,260 @@
  * non-acknowledge, the receiving slave has to repeat its data once.
  */
 
-using namespace std;
+using std::string;
+using std::vector;
 
-static const unsigned char ESC = 0xA9;       //!< escape symbol, either followed by 0x00 for the value 0xA9, or 0x01 for the value 0xAA
-static const unsigned char SYN = 0xAA;       //!< synchronization symbol
-static const unsigned char ACK = 0x00;       //!< positive acknowledge
-static const unsigned char NAK = 0xFF;       //!< negative acknowledge
-static const unsigned char BROADCAST = 0xFE; //!< the broadcast destination address
+/** the base type for symbols sent to/from the eBUS. */
+typedef unsigned char symbol_t;
+
+/** escape symbol, either followed by 0x00 for the value 0xA9, or 0x01 for the value 0xAA. */
+#define ESC 0xA9
+
+/** synchronization symbol. */
+#define SYN 0xAA
+
+/** positive acknowledge symbol. */
+#define ACK 0x00
+
+/** negative acknowledge symbol. */
+#define NAK 0xFF
+
+/** the broadcast destination address. */
+#define BROADCAST 0xFE
+
+/**
+ * Parse an unsigned int value.
+ * @param str the string to parse.
+ * @param base the numerical base.
+ * @param minValue the minimum resulting value.
+ * @param maxValue the maximum resulting value.
+ * @param result the variable in which to store an error code when parsing failed or the value is out of bounds.
+ * @param length the optional variable in which to store the number of read characters.
+ * @return the parsed value.
+ */
+unsigned int parseInt(const char* str, int base, const unsigned int minValue, const unsigned int maxValue,
+    result_t& result, size_t* length = NULL);
+
+/**
+ * Parse a signed int value.
+ * @param str the string to parse.
+ * @param base the numerical base.
+ * @param minValue the minimum resulting value.
+ * @param maxValue the maximum resulting value.
+ * @param result the variable in which to store an error code when parsing failed or the value is out of bounds.
+ * @param length the optional variable in which to store the number of read characters.
+ * @return the parsed value.
+ */
+int parseSignedInt(const char* str, int base, const int minValue, const int maxValue, result_t& result,
+    size_t* length = NULL);
+
+/**
+ * A string of unescaped bus symbols.
+ */
+class SymbolString {
+ protected:
+  /**
+   * Creates a new empty instance.
+   * @param isMaster whether this instance if for the master part.
+   */
+  explicit SymbolString(const bool isMaster = false) { m_isMaster = isMaster; }
+
+ public:
+  /**
+   * Update the CRC by adding a value.
+   * @param crc the current CRC to update.
+   * @param value the escaped value to add to the current CRC.
+   */
+  static void updateCrc(symbol_t& crc, const symbol_t value);
+
+  /**
+   * Return whether this instance if for the master part.
+   * @return whether this instance if for the master part.
+   */
+  bool isMaster() const { return m_isMaster; }
+
+  /**
+   * Parse the hex @a string and add all symbols.
+   * @param str the hex @a string.
+   * @return @a RESULT_OK on success, or an error code.
+   */
+  result_t parseHex(const string& str);
+
+  /**
+   * Parse the escaped hex @a string and add all symbols.
+   * @param str the hex @a string.
+   * @return @a RESULT_OK on success, or an error code.
+   */
+  result_t parseHexEscaped(const string& str);
+
+  /**
+   * Return the symbols as hex string.
+   * @param skipFirstSymbols the number of first symbols to skip.
+   * @return the symbols as hex string.
+   */
+  const string getStr(size_t skipFirstSymbols = 0);
+
+  /**
+   * Return a reference to the symbol at the specified index.
+   * @param index the index of the symbol to return.
+   * @return the reference to the symbol at the specified index.
+   */
+  symbol_t& operator[](const size_t index) {
+    if (index >= m_data.size()) {
+      m_data.resize(index+1, 0);
+    }
+    return m_data[index];
+  }
+
+  /**
+   * Return whether this instance is equal to the other instance.
+   * @param other the other instance.
+   * @return true if this instance is equal to the other instance.
+   */
+  bool operator == (SymbolString& other) {
+    return m_isMaster == other.m_isMaster && m_data == other.m_data;
+  }
+
+  /**
+   * Return whether this instance is different from the other instance.
+   * @param other the other instance.
+   * @return true if this instance is different from the other instance.
+   */
+  bool operator != (SymbolString& other) {
+    return m_isMaster != other.m_isMaster || m_data != other.m_data;
+  }
+
+  /**
+   * Compare the data in this instance to that of the other instance.
+   * @param other the other instance.
+   * @return 0 if the data is equal,
+   * 1 if the data is completely different,
+   * 2 if both instances are a master part and the data only differs in the first byte (the master address).
+   */
+  int compareTo(SymbolString& other) {
+    if (m_data.size() != other.m_data.size()) {
+      return 1;
+    }
+    if (m_data == other.m_data) {
+      return 0;
+    }
+    if (!m_isMaster) {
+      return 1;
+    }
+    if (m_data.size() == 1) {
+      return 2;
+    }
+    if (equal(m_data.begin()+1, m_data.end()-1, other.m_data.begin()+1)) {
+      return 2;
+    }
+    return 1;
+  }
+
+  /**
+   * Append a symbol to the end of the symbol string.
+   * @param value the symbol to append.
+   */
+  void push_back(const symbol_t value) { m_data.push_back(value); }
+
+  /**
+   * Return the number of symbols in this symbol string.
+   * @return the number of available symbols.
+   */
+  size_t size() const { return m_data.size(); }
+
+  /**
+   * Return the offset to the first data byte DD.
+   * @return the offset to the first data byte DD.
+   */
+  size_t getDataOffset() const { return m_isMaster ? 5 : 1; }
+
+  /**
+   * Return the number of effectively available data bytes DD.
+   * @return the number of effectively available data bytes DD.
+   */
+  size_t getDataSize() const {
+    size_t lengthOffset = (m_isMaster ? 4 : 0);
+    if (m_data.size() <= lengthOffset) {
+      return 0;
+    }
+    size_t ret = m_data[lengthOffset];
+    return m_data.size() < lengthOffset + 1 + ret ? m_data.size() - lengthOffset - 1 : ret;
+  }
+
+  /**
+   * Return a reference to the data byte at the specified index (within DD).
+   * @param index the index of the data byte (within DD) to return.
+   * @return the reference to the data byte at the specified index.
+   */
+  symbol_t& dataAt(const size_t index) {
+    size_t offset = (m_isMaster ? 5 : 1) + index;
+    if (offset >= m_data.size()) {
+      m_data.resize(offset+1, 0);
+    }
+    return m_data[offset];
+  }
+
+  /**
+   * Return whether the byte sequence is complete with regard to the header and length field.
+   * @return true if the sequence is complete.
+   */
+  bool isComplete() {
+    size_t lengthOffset = (m_isMaster ? 4 : 0);
+    if (m_data.size() < lengthOffset + 1) {
+      return false;
+    }
+    return m_data.size() >= lengthOffset + 1 + m_data[lengthOffset];
+  }
+
+  /**
+   * Calculate the CRC.
+   * @return the calculated CRC.
+   */
+  symbol_t calcCrc() const;
+
+  /**
+   * Clear the symbols.
+   */
+  void clear() { m_data.clear(); }
+
+
+ private:
+  /**
+   * Hidden copy constructor.
+   * @param str the @a SymbolString to copy from.
+   */
+  SymbolString(const SymbolString& str)
+    : m_data(str.m_data), m_isMaster(str.m_isMaster) {}
+
+  /** the string of unescaped symbols. */
+  vector<symbol_t> m_data;
+
+  /** whether this instance if for the master part. */
+  bool m_isMaster;
+};
 
 
 /**
- * A string of escaped or unescaped bus symbols.
+ * A string of unescaped master bus symbols.
  */
-class SymbolString
-{
+class MasterSymbolString : public SymbolString {
+ public:
+  /**
+   * Creates a new empty instance.
+   */
+  MasterSymbolString() : SymbolString(true) {}
+};
 
-public:
-	/**
-	 * Creates a new empty escaped or unescaped instance.
-	 * @param escaped whether to create an escaped instance.
-	 */
-	SymbolString(const bool escaped=true) : m_unescapeState(escaped ? 0 : 1), m_crc(0) {}
 
-	/**
-	 * Add all symbols from the other @a SymbolString and the calculated CRC if escaped.
-	 * @param str the @a SymbolString to copy from.
-	 * @param skipLastSymbol whether to skip the last symbol (probably the CRC).
-	 */
-	void addAll(const SymbolString& str, const bool skipLastSymbol=false);
-
-	/**
-	 * Parse the escaped or unescaped hex @a string, add all symbols, and add the calculated CRC if escaped.
-	 * @param str the hex @a string.
-	 * @param isEscaped whether the hex string is escaped.
-	 * @return @a RESULT_OK on success, or an error code.
-	 */
-	result_t parseHex(const string& str, const bool isEscaped=false);
-
-	/**
-	 * Return the symbols as hex string.
-	 * @param unescape whether to unescape an escaped instance.
-	 * @param skipLastSymbol whether to skip the last symbol (probably the CRC).
-	 * @return the symbols as hex string.
-	 */
-	const string getDataStr(const bool unescape=true, const bool skipLastSymbol=true);
-
-	/**
-	 * Return a reference to the symbol at the specified index.
-	 * @param index the index of the symbol to return.
-	 * @return the reference to the symbol at the specified index.
-	 */
-	unsigned char& operator[](const size_t index) { if (index >= m_data.size()) m_data.resize(index+1, 0); return m_data[index]; }
-
-	/**
-	 * Return whether this instance is equal to the other instance.
-	 * @param other the other instance.
-	 * @return true if this instance is equal to the other instance (i.e. both escaped or both unescaped and same symbols).
-	 */
-	bool operator==(SymbolString& other) { return m_unescapeState==other.m_unescapeState && m_data==other.m_data; }
-
-	/**
-	 * Return whether this instance is different from the other instance.
-	 * @param other the other instance.
-	 * @return true if this instance is different from the other instance.
-	 */
-	bool operator!=(SymbolString& other) { return m_unescapeState!=other.m_unescapeState || m_data!=other.m_data; }
-
-	/**
-	 * Compares this instance to the other instance while treating both as master data (i.e. starting with the master address and ending with the CRC).
-	 * @param other the other instance.
-	 * @return 0 if this instance is equal to the other instance (i.e. both escaped or both unescaped and same symbols),
-	 * 1 if this instance is completely different to the other instance,
-	 * 2 if this instance only differs from the other instance in the first byte (the master address).
-	 */
-	int compareMaster(SymbolString& other) {
-		if (m_unescapeState!=other.m_unescapeState || m_data.size()!=other.m_data.size()) return 1;
-		if (m_data==other.m_data) return 0;
-		if (m_data.size()==1) return 2;
-		if (equal(m_data.begin()+1, m_data.end()-1, other.m_data.begin()+1)) return 2;
-		return 1;
-	}
-
-	/**
-	 * Appends a the symbol to the end of the symbol string and escapes/unescapes it if necessary.
-	 * @param value the symbol to append.
-	 * @param isEscaped whether the symbol is escaped.
-	 * @param updateCRC whether to update the calculated CRC in @a m_crc.
-	 * @return RESULT_OK if another symbol was appended,
-	 * RESULT_IN_ESC if this is an unescaped instance and the symbol is escaped and the start of the escape sequence was received,
-	 * RESULT_ERR_ESC if this is an unescaped instance and an invalid escaped sequence was detected.
-	 */
-	result_t push_back(const unsigned char value, const bool isEscaped=true, const bool updateCRC=true);
-
-	/**
-	 * Return the number of symbols in this symbol string.
-	 * @return the number of available symbols.
-	 */
-	unsigned char size() const { return (unsigned char)m_data.size(); }
-
-	/**
-	 * Return the calculated CRC.
-	 * @return the calculated CRC.
-	 */
-	unsigned char getCRC() const { return m_crc; }
-
-	/**
-	 * Clear the symbols.
-	 */
-	void clear() { m_data.clear(); m_unescapeState = m_unescapeState==0 ? 0 : 1; m_crc = 0; }
-
-	/**
-	 * Clear the symbols and adjust the escape mode.
-	 * @param escape true to set to an escaped instance, false to set to an unescaped instance.
-	 */
-	void clear(const bool escape) { m_data.clear(); m_unescapeState = escape ? 0 : 1; m_crc = 0; }
-
-private:
-
-	/**
-	 * Hidden copy constructor.
-	 * @param str the @a SymbolString to copy from.
-	 */
-	SymbolString(const SymbolString& str)
-		: m_data(str.m_data), m_unescapeState(str.m_unescapeState), m_crc(str.m_crc) {}
-
-	/**
-	 * Update the calculated CRC in @a m_crc by adding a value.
-	 * @param value the (escaped) value to add to the calculated CRC in @a m_crc.
-	 */
-	void addCRC(const unsigned char value);
-
-	/** the string of bus symbols. */
-	vector<unsigned char> m_data;
-
-	/**
-	 * 0 if the symbols in @a m_data are escaped,
-	 * 1 if the symbols in @a m_data are unescaped and the last symbol passed to @a push_back was a normal symbol,
-	 * 2 if the symbols in @a m_data are unescaped and the last symbol passed to @a push_back was the escape symbol.
-	 */
-	int m_unescapeState;
-
-	/** the calculated CRC. */
-	unsigned char m_crc;
+/**
+ * A string of unescaped slave bus symbols.
+ */
+class SlaveSymbolString : public SymbolString {
+ public:
+  /**
+   * Creates a new empty instance.
+   */
+  SlaveSymbolString() : SymbolString(false) {}
 };
 
 
@@ -211,35 +327,37 @@ private:
  * @param addr the address to check.
  * @return <code>true</code> if the specified address is a master address.
  */
-bool isMaster(unsigned char addr);
+bool isMaster(symbol_t addr);
 
 /**
  * Return whether the address is a slave address of one of the 25 masters.
  * @param addr the address to check.
  * @return <code>true</code> if the specified address is a slave address of a master.
  */
-bool isSlaveMaster(unsigned char addr);
+bool isSlaveMaster(symbol_t addr);
 
 /**
  * Return the slave address associated with the specified address (master or slave).
  * @param addr the address to check.
- * @return the slave address, or SYN if the specified address is neither a master address nor a slave address of a master.
+ * @return the slave address, or SYN if the specified address is neither a master address nor a slave address of a
+ * master.
  */
-unsigned char getSlaveAddress(unsigned char addr);
+symbol_t getSlaveAddress(symbol_t addr);
 
 /**
  * Return the master address associated with the specified address (master or slave).
  * @param addr the address to check.
- * @return the master address, or SYN if the specified address is neither a master address nor a slave address of a master.
+ * @return the master address, or SYN if the specified address is neither a master address nor a slave address of a
+ * master.
  */
-unsigned char getMasterAddress(unsigned char addr);
+symbol_t getMasterAddress(symbol_t addr);
 
 /**
  * Return the number of the master if the address is a valid bus address.
  * @param addr the bus address.
  * @return the number of the master if the address is a valid bus address (1 to 25), or 0.
  */
-unsigned char getMasterNumber(unsigned char addr);
+unsigned int getMasterNumber(symbol_t addr);
 
 /**
  * Return whether the address is a valid bus address.
@@ -247,6 +365,8 @@ unsigned char getMasterNumber(unsigned char addr);
  * @param allowBroadcast whether to also allow @a addr to be the broadcast address (default true).
  * @return <code>true</code> if the specified address is a valid bus address.
  */
-bool isValidAddress(unsigned char addr, bool allowBroadcast=true);
+bool isValidAddress(symbol_t addr, bool allowBroadcast = true);
 
-#endif // LIBEBUS_SYMBOL_H_
+}  // namespace ebusd
+
+#endif  // LIB_EBUS_SYMBOL_H_

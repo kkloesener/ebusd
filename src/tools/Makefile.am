@@ -1,5 +1,5 @@
-AM_CXXFLAGS = -isystem$(top_srcdir)/src/lib/utils \
-	      -isystem$(top_srcdir)/src/lib/ebus
+AM_CXXFLAGS = -I$(top_srcdir)/src \
+	      -isystem$(top_srcdir)
 
 bin_PROGRAMS = ebusctl \
 	       ebusfeed
@@ -11,7 +11,10 @@ ebusfeed_SOURCES = ebusfeed.cpp
 ebusfeed_LDADD = ../lib/utils/libutils.a \
 	         ../lib/ebus/libebus.a
 
+if CONTRIB
+ebusfeed_LDADD += ../lib/ebus/contrib/libebuscontrib.a
+endif
+
 distclean-local:
 	-rm -f Makefile.in
 	-rm -rf .libs
-

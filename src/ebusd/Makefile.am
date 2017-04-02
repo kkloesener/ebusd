@@ -1,6 +1,6 @@
-AM_CXXFLAGS = -Wconversion -Wno-unused-parameter \
-	      -isystem$(top_srcdir)/src/lib/utils \
-	      -isystem$(top_srcdir)/src/lib/ebus \
+AM_CXXFLAGS = -I$(top_srcdir)/src \
+	      -isystem$(top_srcdir) \
+	      -Wconversion -Wno-unused-parameter \
 	      -DSYSCONFDIR=\"$(sysconfdir)\" \
 	      -DLOCALSTATEDIR=\"$(localstatedir)\"
 
@@ -25,6 +25,10 @@ ebusd_LDADD = ../lib/utils/libutils.a \
               ../lib/ebus/libebus.a \
 	      -lpthread \
 	      @EXTRA_LIBS@
+
+if CONTRIB
+ebusd_LDADD += ../lib/ebus/contrib/libebuscontrib.a
+endif
 
 distclean-local:
 	-rm -f Makefile.in

@@ -1,4 +1,6 @@
-AM_CXXFLAGS = -isystem$(top_srcdir)/src/lib/ebus
+AM_CXXFLAGS = -I$(top_srcdir)/src \
+	      -isystem$(top_srcdir) \
+	      -Wno-unused-parameter
 
 noinst_PROGRAMS = test_filereader \
 		  test_device \
@@ -20,6 +22,12 @@ test_data_LDADD = ../libebus.a
 
 test_message_SOURCES = test_message.cpp
 test_message_LDADD = ../libebus.a
+
+if CONTRIB
+test_device_LDADD += ../contrib/libebuscontrib.a
+test_data_LDADD += ../contrib/libebuscontrib.a
+test_message_LDADD += ../contrib/libebuscontrib.a
+endif
 
 distclean-local:
 	-rm -f Makefile.in

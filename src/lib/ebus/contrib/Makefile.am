@@ -1,5 +1,6 @@
-AM_CXXFLAGS = -Wno-unused-parameter \
-	-isystem$(top_srcdir)/src/lib/ebus
+AM_CXXFLAGS = -I$(top_srcdir)/src \
+	      -isystem$(top_srcdir) \
+	      -Wno-unused-parameter
 
 noinst_LIBRARIES = libebuscontrib.a
 

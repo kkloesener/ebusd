@@ -1,8 +1,21 @@
-# next version
+# next version: 3.0
+
+## Breaking Changes
+* switched to C++11 compiler
+* separated access level from circuit name
+* introduced access control list and user authentication for access to certain messages
+* added automatic check for updates (ebusd and configuration)
 
 ## Bug Fixes
 * corrected numeric condition formatting
 * corrected reporting of CSV error position
+* corrected last update time of write messages
+* close log file on SIGHUP for better logrotate support
+* only allow a single scan at the same time
+* check allowed value range for base types during decoding
+* ignore first seconds of data when calculating symbols per second
+* exclude messages without name
+* fix for potentially zero resolution
 
 ## Features
 * added support for MQTT handling via libmosquitto (will be compiled in when library is available)
@@ -10,6 +23,21 @@
 * use scan ID as fallback for default circuit name
 * added U3N/U3R/S3N/S3R data types
 * added another log facility "other"
+* added support for using cmake in addition to autoconf
+* added Docker support
+* allow invalid (non-BCD) coded SW and HW fields when looking for scan config file
+* added "auth" command and user/access information to "info" command output
+* added user and secret arguments to HTTP port
+* use ACL in read/write/find/scan commands
+* added -a and -l options to "find" command
+* added possibility to define different log level per area on command line and with "log" command
+* added decode option to "grab" command presenting decoding hints for unknown messages
+* added option to use different source address QQ to read/write/hex commands
+* enhanced scan for individual slave
+* wait for broadcast scan answers before doing individual scans
+* enhanced SymbolString to be aware of master/slave and get rid of CRC (instead calculate while sending/receiving)
+* allow unusually formatted MQTT topics
+* allow TTQ/TTH types to use less than 8 bits
 
 
 # 2.4 (2016-12-17)

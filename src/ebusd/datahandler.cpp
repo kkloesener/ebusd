@@ -16,16 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "datahandler.h"
-#include <list>
 #ifdef HAVE_CONFIG_H
-#	include <config.h>
-#endif
-#ifdef HAVE_MQTT
-#	include "mqtthandler.h"
+#  include <config.h>
 #endif
 
-using namespace std;
+#include "ebusd/datahandler.h"
+#ifdef HAVE_MQTT
+#  include "ebusd/mqtthandler.h"
+#endif
+
+namespace ebusd {
 
 /** the final @a argp_child structure. */
 static const struct argp_child g_last_argp_child = {NULL, 0, NULL, 0};
@@ -33,39 +33,41 @@ static const struct argp_child g_last_argp_child = {NULL, 0, NULL, 0};
 /** the list of @a argp_child structures. */
 static struct argp_child g_argp_children[
 #ifdef HAVE_MQTT
-						1
+            1
 #endif
-						+1
+            +1
 ];
 
-const struct argp_child* datahandler_getargs()
-{
-	size_t count = 0;
+const struct argp_child* datahandler_getargs() {
+  size_t count = 0;
 #ifdef HAVE_MQTT
-	g_argp_children[count++] = *mqtthandler_getargs();
+  g_argp_children[count++] = *mqtthandler_getargs();
 #endif
-	if (count>0) {
-		g_argp_children[count] = g_last_argp_child;
-		return g_argp_children;
-	}
-	return NULL;
+  if (count > 0) {
+    g_argp_children[count] = g_last_argp_child;
+    return g_argp_children;
+  }
+  return NULL;
 }
 
-bool datahandler_register(BusHandler* busHandler, MessageMap* messages, list<DataHandler*>& handlers)
-{
-	bool success = true;
+bool datahandler_register(UserInfo* userInfo, BusHandler* busHandler, MessageMap* messages,
+    list<DataHandler*>& handlers) {
+  bool success = true;
 #ifdef HAVE_MQTT
-	DataHandler* handler = mqtthandler_register(busHandler, messages);
-	if (handler) {
-		handlers.push_back(handler);
-	} else {
-		success = false;
-	}
+  DataHandler* handler = mqtthandler_register(userInfo, busHandler, messages);
+  if (handler) {
+    handlers.push_back(handler);
+  } else {
+    success = false;
+  }
 #endif
-	return success;
+  return success;
 }
 
-void DataSink::notifyUpdate(Message* message)
-{
-	m_updatedMessages[message]++;
+void DataSink::notifyUpdate(Message* message) {
+  if (message && message->hasLevel(m_levels)) {
+    m_updatedMessages[message]++;
+  }
 }
+
+}  // namespace ebusd

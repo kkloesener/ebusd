@@ -1,5 +1,6 @@
-AM_CXXFLAGS = -Wno-unused-parameter \
-	      -Wconversion
+AM_CXXFLAGS = -I$(top_srcdir)/src \
+	      -isystem$(top_srcdir) \
+	      -Wconversion -Wno-unused-parameter
 
 noinst_LIBRARIES = libebus.a
 
@@ -8,6 +9,7 @@ libebus_a_SOURCES = result.cpp \
 		    symbol.cpp \
 		    symbol.h \
 		    filereader.h \
+		    filereader.cpp \
 		    datatype.cpp \
 		    datatype.h \
 		    data.cpp \
@@ -19,7 +21,6 @@ libebus_a_SOURCES = result.cpp \
 
 if CONTRIB
 SUBDIRS = contrib
-libebus_a_LIBADD = contrib/*.o
 endif
 
 distclean-local:

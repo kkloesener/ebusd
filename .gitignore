@@ -2,6 +2,12 @@
 .project
 .settings
 /INSTALL
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+CTestTestfile.cmake
+Testing
+cmake_install.cmake
 Makefile
 Makefile.in
 /build/*
@@ -23,6 +29,7 @@ app.info
 /src/tools/ebusfeed
 /src/lib/utils/libutils.a
 /src/lib/ebus/libebus.a
+/src/lib/ebus/contrib/test/test_tem
 /src/lib/ebus/test/test_device
 /src/lib/ebus/test/test_symbol
 /src/lib/ebus/test/test_data

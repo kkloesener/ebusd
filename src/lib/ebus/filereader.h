@@ -1,6 +1,6 @@
 /*
  * ebusd - daemon for communication with eBUS heating systems.
- * Copyright (C) 2014-2016 John Baier <ebusd@ebusd.eu>
+ * Copyright (C) 2014-2017 John Baier <ebusd@ebusd.eu>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,20 +16,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIBEBUS_FILEREADER_H_
-#define LIBEBUS_FILEREADER_H_
+#ifndef LIB_EBUS_FILEREADER_H_
+#define LIB_EBUS_FILEREADER_H_
 
-#include "symbol.h"
-#include "result.h"
-#include <climits>
-#include <string>
-#include <iostream>
-#include <sstream>
-#include <fstream>
 #include <algorithm>
+#include <map>
+#include <string>
 #include <vector>
+#include <iomanip>
+#include <mutex>
+#include "lib/ebus/symbol.h"
+#include "lib/ebus/result.h"
 
-/** @file filereader.h
+namespace ebusd {
+
+/** @file lib/ebus/filereader.h
  * Helper class and constants for reading configuration files.
  *
  * The @a FileReader template class allows to read CSV compliant text files
@@ -39,7 +40,11 @@
  * with a "*" symbol.
  */
 
-using namespace std;
+using std::string;
+using std::map;
+using std::ostream;
+using std::istream;
+using std::mutex;
 
 /** the separator character used between fields. */
 #define FIELD_SEPARATOR ','
@@ -53,334 +58,214 @@ using namespace std;
 /** the separator character used between multiple values (in CSV only). */
 #define VALUE_SEPARATOR ';'
 
-extern void printErrorPos(ostream& out, vector<string>::iterator begin, const vector<string>::iterator end, vector<string>::iterator pos, string filename, size_t lineNo, result_t result);
-
-extern unsigned int parseInt(const char* str, int base, const unsigned int minValue, const unsigned int maxValue, result_t& result, unsigned int* length);
 
 /**
  * An abstract class that support reading definitions from a file.
  */
-class FileReader
-{
-public:
+class FileReader {
+ public:
+  /**
+   * Constructor.
+   */
+  FileReader() {}
 
-	/**
-	 * Construct a new instance.
-	 */
-	FileReader(bool supportsDefaults)
-			: m_supportsDefaults(supportsDefaults) {}
+  /**
+   * Destructor.
+   */
+  virtual ~FileReader() {}
 
-	/**
-	 * Destructor.
-	 */
-	virtual ~FileReader() {}
+  /**
+   * Read the definitions from a file.
+   * @param filename the name of the file being read.
+   * @param errorDescription a string in which to store the error description in case of error.
+   * @param verbose whether to verbosely log problems.
+   * @param defaults the default values by name (potentially overwritten by file name), or NULL to not use defaults.
+   * @param hash optional pointer to a @a size_t value for storing the hash of the file, or NULL.
+   * @param size optional pointer to a @a size_t value for storing the normalized size of the file, or NULL.
+   * @param time optional pointer to a @a time_t value for storing the modification time of the file, or NULL.
+   * @return @a RESULT_OK on success, or an error code.
+   */
+  virtual result_t readFromFile(const string filename, string& errorDescription, bool verbose = false,
+      map<string, string>* defaults = NULL, size_t* hash = NULL, size_t* size = NULL, time_t* time = NULL);
 
-	/**
-	 * Read the definitions from a file.
-	 * @param filename the name of the file being read.
-	 * @param verbose whether to verbosely log problems.
-	 * @param defaultDest the default destination address (may be overwritten by file name), or empty.
-	 * @param defaultCircuit the default circuit name (may be overwritten by file name), or empty.
-	 * @param defaultSuffix the default circuit name suffix (starting with a ".", may be overwritten by file name, or empty.
-	 * @return @a RESULT_OK on success, or an error code.
-	 */
-	virtual result_t readFromFile(const string filename, bool verbose=false,
-		string defaultDest = "", string defaultCircuit = "", string defaultSuffix = "")
-	{
-		ifstream ifs;
-		ifs.open(filename.c_str(), ifstream::in);
-		if (!ifs.is_open()) {
-			m_lastError = filename;
-			return RESULT_ERR_NOTFOUND;
-		}
-		size_t lastSep = filename.find_last_of('/');
-		if (lastSep!=string::npos) { // potential destination address, matches "^ZZ."
-			// extract defaultDest, defaultCircuit, defaultSuffix from filename:
-			// ZZ.IDENT[.CIRCUIT][.SUFFIX].*csv
-			unsigned char checkDest;
-			string checkIdent, useCircuit, useSuffix;
-			unsigned int checkSw, checkHw;
-			if (extractDefaultsFromFilename(filename.substr(lastSep+1), checkDest, checkIdent, useCircuit, useSuffix, checkSw, checkHw)) {
-				defaultDest = filename.substr(lastSep+1, 2);
-				if (!useCircuit.empty()) {
-					defaultCircuit = useCircuit;
-				}
-				if (!useSuffix.empty()) {
-					defaultSuffix = useSuffix;
-				}
-			}
-		}
-		unsigned int lineNo = 0;
-		vector<string> row;
-		vector< vector<string> > defaults;
-		while (splitFields(ifs, row, lineNo)) {
-			if (row.empty())
-				continue;
+  /**
+   * Read a single line definition from the stream.
+   * @param stream the @a istream to read from.
+   * @param errorDescription a string in which to store the error description in case of error.
+   * @param filename the name of the file being read.
+   * @param lineNo the last line number (incremented with each line read).
+   * @param row the definition row to clear and update with the read data (for performance reasons only).
+   * @param verbose whether to verbosely log problems.
+   * @param hash optional pointer to a @a size_t value for updating with the hash of the line, or NULL.
+   * @param size optional pointer to a @a size_t value for updating with the normalized length of the line, or NULL.
+   * @return @a RESULT_OK on success, or an error code.
+   */
+  virtual result_t readLineFromStream(istream& stream, string& errorDescription,
+      const string filename, unsigned int& lineNo, vector<string>& row, bool verbose = false,
+      size_t* hash = NULL, size_t* size = NULL);
 
-			result_t result;
-			vector<string>::iterator it = row.begin();
-			const vector<string>::iterator end = row.end();
-			if (m_supportsDefaults) {
-				if (row[0][0] == '*') {
-					row[0] = row[0].substr(1);
-					result = addDefaultFromFile(defaults, row, it, defaultDest, defaultCircuit, defaultSuffix, filename, lineNo);
-					if (result == RESULT_OK)
-						continue;
-				} else
-					result = addFromFile(it, end, &defaults, defaultDest, defaultCircuit, defaultSuffix, filename, lineNo);
-			}
-			else
-				result = addFromFile(it, end, NULL, defaultDest, defaultCircuit, defaultSuffix, filename, lineNo);
+  /**
+   * Add a definition that was read from a file.
+   * @param row the definition row.
+   * @param errorDescription a string in which to store the error description in case of error.
+   * @param filename the name of the file being read.
+   * @param lineNo the current line number in the file being read.
+   * @return @a RESULT_OK on success, or an error code.
+   */
+  virtual result_t addFromFile(vector<string>& row, string& errorDescription,
+      const string filename, unsigned int lineNo) = 0;
 
-			if (result != RESULT_OK) {
-				if (!verbose) {
-					ifs.close();
-					ostringstream error;
-					error << filename << ":" << static_cast<unsigned>(lineNo);
-					if (m_lastError.length()>0) {
-						error << ": " << m_lastError;
-					}
-					m_lastError = error.str();
-					return result;
-				}
-				if (m_lastError.length()>0) {
-					cout << m_lastError << endl;
-				}
-				printErrorPos(cout, row.begin(), end, it, filename, lineNo, result);
-			} else if (!verbose)
-				m_lastError = "";
-		}
+  /**
+   * Left and right trim the string.
+   * @param str the @a string to trim.
+   */
+  static void trim(string& str);
 
-		ifs.close();
-		return RESULT_OK;
-	}
+  /**
+   * Convert all upper case characters in the string to lower case.
+   * @param str the @a string to convert.
+   */
+  static void tolower(string& str);
 
-	/**
-	 * Return a @a string describing the last error position.
-	 * @return a @a string describing the last error position.
-	 */
-	virtual string getLastError() { return m_lastError; }
+  /**
+   * Split the next line(s) from the @a istream into fields.
+   * @param ifs the @a istream to read from.
+   * @param row the @a vector to which to add the fields. This will be empty for completely empty and comment lines.
+   * @param lineNo the current line number (incremented with each line read).
+   * @param hash optional pointer to a @a size_t value for combining the hash of the line with, or NULL.
+   * @param size optional pointer to a @a size_t value to add the trimmed line length to, or NULL.
+   * @return true if there are more lines to read, false when there are no more lines left.
+   */
+  static bool splitFields(istream& ifs, vector<string>& row, unsigned int& lineNo,
+      size_t* hash = NULL, size_t* size = NULL);
 
-	/**
-	 * Add a default row that was read from a file.
-	 * @param defaults the list to add the default row to.
-	 * @param row the default row (initial star char removed).
-	 * @param begin an iterator to the first column of the default row to read (for error reporting).
-	 * @param defaultDest the valid destination address extracted from the file name (from ZZ part), or empty.
-	 * @param defaultCircuit the valid circuit name extracted from the file name (from IDENT part), or empty.
-	 * @param defaultSuffix the valid circuit name suffix (starting with a ".") extracted from the file name (number after after IDENT part and "."), or empty.
-	 * @param filename the name of the file being read.
-	 * @param lineNo the current line number in the file being read.
-	 * @return @a RESULT_OK on success, or an error code.
-	 */
-	virtual result_t addDefaultFromFile(vector< vector<string> >& defaults, vector<string>& row,
-			vector<string>::iterator& begin, string defaultDest, string defaultCircuit, string defaultSuffix,
-			const string& filename, unsigned int lineNo)
-	{
-		defaults.push_back(row);
-		begin = row.end();
-		return RESULT_OK;
-	}
-
-	/**
-	 * Add a definition that was read from a file.
-	 * @param begin an iterator to the first column of the definition row to read.
-	 * @param end the end iterator of the definition row to read.
-	 * @param defaults all previously read default rows (initial star char removed), or NULL if not supported.
-	 * @param defaultDest the valid destination address extracted from the file name (from ZZ part), or empty.
-	 * @param defaultCircuit the valid circuit name extracted from the file name (from IDENT part), or empty.
-	 * @param defaultSuffix the valid circuit name suffix (starting with a ".") extracted from the file name (number after after IDENT part and "."), or empty.
-	 * @param filename the name of the file being read.
-	 * @param lineNo the current line number in the file being read.
-	 * @return @a RESULT_OK on success, or an error code.
-	 */
-	virtual result_t addFromFile(vector<string>::iterator& begin, const vector<string>::iterator end,
-		vector< vector<string> >* defaults, const string& defaultDest, const string& defaultCircuit, const string& defaultSuffix,
-		const string& filename, unsigned int lineNo) = 0;
-
-	/**
-	 * Left and right trim the string.
-	 * @param str the @a string to trim.
-	 */
-	static void trim(string& str)
-	{
-		size_t pos = str.find_first_not_of(" \t");
-		if (pos!=string::npos) {
-			str.erase(0, pos);
-		}
-		pos = str.find_last_not_of(" \t");
-		if (pos!=string::npos) {
-			str.erase(pos+1);
-		}
-	}
-
-	/**
-	 * Convert all upper case characters in the string to lower case.
-	 * @param str the @a string to convert.
-	 */
-	static void tolower(string& str)
-	{
-		transform(str.begin(), str.end(), str.begin(), ::tolower);
-	}
-
-	/**
-	 * Split the next line(s) from the @a istring into fields.
-	 * @param ifs the @a istream to read from.
-	 * @param row the @a vector to which to add the fields. This will be empty for completely empty and comment lines.
-	 * @param lineNo the current line number (incremented with each line read).
-	 * @return true if there are more lines to read, false when there are no more lines left.
-	 */
-	static bool splitFields(istream& ifs, vector<string>& row, unsigned int& lineNo)
-	{
-		row.clear();
-		string line;
-		bool quotedText = false, wasQuoted = false;
-		ostringstream field;
-		char prev = FIELD_SEPARATOR;
-		bool empty = true, read = false;
-		while (getline(ifs, line)) {
-			read = true;
-			lineNo++;
-			trim(line);
-
-			size_t length = line.length();
-			if (!quotedText && (length == 0 || line[0] == '#' || (line.length() > 1 && line[0] == '/' && line[1] == '/')))
-				continue; // skip empty lines and comments
-
-			for (size_t pos = 0; pos < length; pos++) {
-				char ch = line[pos];
-				switch (ch)
-				{
-				case FIELD_SEPARATOR:
-					if (quotedText) {
-						field << ch;
-					} else {
-						string str = field.str();
-						trim(str);
-						empty &= str.empty();
-						row.push_back(str);
-						field.str("");
-						wasQuoted = false;
-					}
-					break;
-				case TEXT_SEPARATOR:
-					if (prev == TEXT_SEPARATOR && !quotedText) { // double dquote
-						field << ch;
-						quotedText = true;
-					} else if (quotedText) {
-						quotedText = false;
-					} else if (prev == FIELD_SEPARATOR) {
-						quotedText = wasQuoted = true;
-					} else {
-						field << ch;
-					}
-					break;
-				case '\r':
-					break;
-				default:
-					if (prev==TEXT_SEPARATOR && !quotedText && wasQuoted) {
-						field << TEXT_SEPARATOR; // single dquote in the middle of formerly quoted text
-						quotedText = true;
-					} else if (quotedText && pos==0 && field.tellp()>0 && *(field.str().end()-1)!=VALUE_SEPARATOR) {
-						field << VALUE_SEPARATOR;
-					}
-					field << ch;
-					break;
-				}
-				prev = ch;
-			}
-			if (!quotedText)
-				break;
-		}
-		string str = field.str();
-		trim(str);
-		if (empty && str.empty()) {
-			row.clear();
-			return read;
-		}
-		row.push_back(str);
-		return true;
-	}
-
-	/**
-	 * Extract default values from the file name.
-	 * @param name the file name (without path) in the form "ZZ[.IDENT][.CIRCUIT][.SUFFIX][.SWXXXX][.HWXXXX][.*].csv".
-	 * @param dest the output destination address ZZ (hex digits).
-	 * @param ident the identification part IDENT (up to 5 characters, set to empty if not present).
-	 * @param circuit the circuit part CIRCUIT (set to IDENT if not present).
-	 * @param suffix the suffix part SUFFIX including the leading dot (decimal digit, set to empty if not present).
-	 * @param software the software version part SWXXXX (BCD digits, set to @a UINT_MAX if not present).
-	 * @param hardware the hardware version part HWXXXX (BCD digits, set to @a UINT_MAX if not present).
-	 * @return true if at least the address and the identification part were extracted, false otherwise.
-	 */
-	static bool extractDefaultsFromFilename(string name, unsigned char& dest, string& ident, string& circuit,
-		string& suffix, unsigned int& software, unsigned int& hardware)
-	{
-		ident = circuit = suffix = "";
-		software = hardware = UINT_MAX;
-		if (name.length()>4 && name.substr(name.length()-4)==".csv") {
-			name = name.substr(0, name.length()-3); // including trailing "."
-		}
-		size_t pos = name.find('.');
-		if (pos!=2) {
-			return false; // missing "ZZ."
-		}
-		result_t result = RESULT_OK;
-		dest = (unsigned char)parseInt(name.substr(0, pos).c_str(), 16, 0, 0xff, result, NULL);
-		if (result!=RESULT_OK || !isValidAddress(dest)) {
-			return false; // invalid "ZZ"
-		}
-		name.erase(0, pos);
-		if (name.length()>1) {
-			pos = name.rfind(".SW"); // check for ".SWxxxx."
-			if (pos!=string::npos && name.find(".", pos+1)==pos+7) {
-				software = parseInt(name.substr(pos+3, 4).c_str(), 10, 0, 9999, result, NULL);
-				if (result!=RESULT_OK) {
-					return false; // invalid "SWxxxx"
-				}
-				name.erase(pos, 7);
-			}
-		}
-		if (name.length()>1) {
-			pos = name.rfind(".HW"); // check for ".HWxxxx."
-			if (pos!=string::npos && name.find(".", pos+1)==pos+7) {
-				hardware = parseInt(name.substr(pos+3, 4).c_str(), 10, 0, 9999, result, NULL);
-				if (result!=RESULT_OK) {
-					return false; // invalid "HWxxxx"
-				}
-				name.erase(pos, 7);
-			}
-		}
-		if (name.length()>1) {
-			pos = name.find('.', 1); // check for ".IDENT."
-			if (pos!=string::npos && pos>=1 && pos<=6) { // up to 5 chars between two "."s, immediately after "ZZ.", or ".."
-				ident = circuit = name.substr(1, pos-1);
-				name.erase(0, pos);
-				pos = name.find('.', 1); // check for ".CIRCUIT."
-				if (pos!=string::npos && (pos>2 || name[1]<'0' || name[1]>'9')) {
-					circuit = name.substr(1, pos-1);
-					name.erase(0, pos);
-					pos = name.find('.', 1); // check for ".SUFFIX."
-				}
-				if (pos!=string::npos && pos==2 && name[1]>='0' && name[1]<='9') {
-					suffix = name.substr(0, 2);
-					name.erase(0, pos);
-				}
-			}
-		}
-		return true;
-	}
-
-private:
-
-	/** whether this instance supports rows with defaults (starting with a star). */
-	bool m_supportsDefaults;
-
-protected:
-
-	/** a @a string describing the last error position. */
-	string m_lastError;
-
+  /**
+   * Format the specified hash as 8 hex digits to the output stream.
+   * @param hash the hash code.
+   * @param str the @a ostream to write to.
+   */
+  static void formatHash(size_t hash, ostream& str) {
+    str << std::hex << std::setw(8) << std::setfill('0') << (hash & 0xffffffff) << std::dec << std::setw(0);
+  }
 };
 
-#endif // LIBEBUS_FILEREADER_H_
+
+/**
+ * An abstract class derived from @a FileReader that additionally allows to using mapped name/value pairs with one
+ * main map and many sub maps.
+ */
+class MappedFileReader : public FileReader {
+ public:
+  /**
+   * Constructor.
+   * @param supportsDefaults whether this instance supports rows with defaults (starting with a star).
+   */
+  explicit MappedFileReader(bool supportsDefaults) : FileReader(), m_supportsDefaults(supportsDefaults) {}
+
+  /**
+   * Destructor.
+   */
+  virtual ~MappedFileReader() {
+    m_columnNames.clear();
+    m_lastDefaults.clear();
+    m_lastSubDefaults.clear();
+  }
+
+  // @copydoc
+  result_t readFromFile(const string filename, string& errorDescription, bool verbose = false,
+      map<string, string>* defaults = NULL, size_t* hash = NULL, size_t* size = NULL, time_t* time = NULL) override;
+
+  /**
+   * Extract default values from the file name.
+   * @param filename the name of the file (without path)
+   * @param defaults the default values by name to add to.
+   * @param destAddress a pointer to a variable in which to store the numeric destination address, or NULL.
+   * @param software a pointer to a in which to store the numeric software version, or NULL.
+   * @param hardware a pointer to a in which to store the numeric hardware version, or NULL.
+   * @return true if the minimum parts were extracted, false otherwise.
+   */
+  virtual bool extractDefaultsFromFilename(string filename, map<string, string>& defaults,
+      symbol_t* destAddress = NULL, unsigned int* software = NULL, unsigned int* hardware = NULL) {
+    return false;
+  }
+
+  // @copydoc
+  result_t addFromFile(vector<string>& row, string& errorDescription,
+      const string filename, unsigned int lineNo) override;
+
+  /**
+   * Get the field mapping from the given first line.
+   * @param row the first line from which to extract the field mapping, or empty to use the default mapping.
+   * @param errorDescription a string in which to store the error description in case of error.
+   * @return @a RESULT_OK on success, or an error code.
+   */
+  virtual result_t getFieldMap(vector<string>& row, string& errorDescription) = 0;
+
+  /**
+   * Add a default row that was read from a file.
+   * @param row the default row by field name.
+   * @param subRows the sub default rows, each by field name.
+   * @param errorDescription a string in which to store the error description in case of error.
+   * @param filename the name of the file being read.
+   * @param lineNo the current line number in the file being read.
+   * @return @a RESULT_OK on success, or an error code.
+   */
+  virtual result_t addDefaultFromFile(map<string, string>& row, vector< map<string, string> >& subRows,
+      string& errorDescription, const string filename, unsigned int lineNo) {
+    errorDescription = "defaults not supported";
+    return RESULT_ERR_INVALID_ARG;
+  }
+
+  /**
+   * Add a definition that was read from a file.
+   * @param row the main definition row by field name.
+   * @param subRows the sub definition rows, each by field name.
+   * @param errorDescription a string in which to store the error description in case of error.
+   * @param filename the name of the file being read.
+   * @param lineNo the current line number in the file being read.
+   * @return @a RESULT_OK on success, or an error code.
+   */
+  virtual result_t addFromFile(map<string, string>& row, vector< map<string, string> >& subRows,
+      string& errorDescription, const string filename, unsigned int lineNo) = 0;
+
+  /**
+   * @return a reference to all previously extracted default values by type and field name.
+   */
+  virtual map<string, map<string, string> >& getDefaults() {
+    return m_lastDefaults;
+  }
+
+  /**
+   * @return a reference to all previously extracted sub default values by type and field name.
+   */
+  virtual map<string, vector< map<string, string> > >& getSubDefaults() {
+    return m_lastSubDefaults;
+  }
+
+  /**
+   * Combine the row to a single string.
+   * @param row the mapped row.
+   * @return the combined string.
+   */
+  static string combineRow(const map<string, string>& row);
+
+ private:
+  /** whether this instance supports rows with defaults (starting with a star). */
+  const bool m_supportsDefaults;
+
+  /** a @a mutex for access to defaults. */
+  mutex m_mutex;
+
+  /** the name of each column. */
+  vector<string> m_columnNames;
+
+  /** all previously extracted default values by type and field name. */
+  map<string, map<string, string> > m_lastDefaults;
+
+  /** all previously extracted sub default values by type and field name. */
+  map<string, vector< map<string, string> > > m_lastSubDefaults;
+};
+
+}  // namespace ebusd
+
+#endif  // LIB_EBUS_FILEREADER_H_

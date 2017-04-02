@@ -1,6 +1,6 @@
 /*
  * ebusd - daemon for communication with eBUS heating systems.
- * Copyright (C) 2014-2016 John Baier <ebusd@ebusd.eu>, Roland Jax 2012-2014 <ebusd@liwest.at>
+ * Copyright (C) 2014-2017 John Baier <ebusd@ebusd.eu>, Roland Jax 2012-2014 <ebusd@liwest.at>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,133 +16,132 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIBUTILS_THREAD_H_
-#define LIBUTILS_THREAD_H_
+#ifndef LIB_UTILS_THREAD_H_
+#define LIB_UTILS_THREAD_H_
 
 #include <pthread.h>
 
-/** \file thread.h */
+namespace ebusd {
+
+/** \file lib/utils/thread.h */
 
 /**
  * wrapper class for pthread.
  */
-class Thread
-{
+class Thread {
+ public:
+  /**
+   * constructor.
+   */
+  Thread() : m_threadid(0), m_started(false), m_running(false), m_stopped(false) {}
 
-public:
-	/**
-	 * constructor.
-	 */
-	Thread() : m_threadid(0), m_started(false), m_running(false), m_stopped(false) {}
+  /**
+   * virtual destructor.
+   */
+  virtual ~Thread();
 
-	/**
-	 * virtual destructor.
-	 */
-	virtual ~Thread();
+  /**
+   * Thread entry helper for pthread_create.
+   * @param arg pointer to the @a Thread.
+   * @return NULL.
+   */
+  static void* runThread(void* arg);
 
-	/**
-	 * Thread entry helper for pthread_create.
-	 * @param arg pointer to the @a Thread.
-	 * @return NULL.
-	 */
-	static void* runThread(void* arg);
+  /**
+   * Return whether this @a Thread is still running and not yet stopped.
+   * @return true if this @a Thread is till running and not yet stopped.
+   */
+  virtual bool isRunning() { return m_running && !m_stopped; }
 
-	/**
-	 * Return whether this @a Thread is still running and not yet stopped.
-	 * @return true if this @a Thread is till running and not yet stopped.
-	 */
-	virtual bool isRunning() { return m_running && !m_stopped; }
+  /**
+   * Create the native thread and set its name.
+   * @param name the thread name to show in the process list.
+   * @return whether the thread was started.
+   */
+  virtual bool start(const char* name);
 
-	/**
-	 * Create the native thread and set its name.
-	 * @param name the thread name to show in the process list.
-	 * @return whether the thread was started.
-	 */
-	virtual bool start(const char* name);
+  /**
+   * Notify the thread that it shall stop.
+   */
+  virtual void stop() { m_stopped = true; }
 
-	/**
-	 * Notify the thread that it shall stop.
-	 */
-	virtual void stop() { m_stopped = true; }
+  /**
+   * Join the thread.
+   * @return whether the thread was joined.
+   */
+  virtual bool join();
 
-	/**
-	 * Join the thread.
-	 * @return whether the thread was joined.
-	 */
-	virtual bool join();
+  /**
+   * Get the thread id.
+   * @return the thread id.
+   */
+  pthread_t self() { return m_threadid; }
 
-	/**
-	 * Get the thread id.
-	 * @return the thread id.
-	 */
-	pthread_t self() { return m_threadid; }
 
-protected:
+ protected:
+  /**
+   * Thread entry method to be overridden by derived class.
+   */
+  virtual void run() = 0;
 
-	/**
-	 * Thread entry method to be overridden by derived class.
-	 */
-	virtual void run() = 0;
 
-private:
+ private:
+  /**
+   * Enter the Thread loop by calling run().
+   */
+  void enter();
 
-	/**
-	 * Enter the Thread loop by calling run().
-	 */
-	void enter();
+  /** own thread id */
+  pthread_t m_threadid;
 
-	/** own thread id */
-	pthread_t m_threadid;
+  /** Whether the thread was started. */
+  bool m_started;
 
-	/** Whether the thread was started. */
-	bool m_started;
+  /** Whether the thread is still running (i.e. in @a run() ). */
+  bool m_running;
 
-	/** Whether the thread is still running (i.e. in @a run() ). */
-	bool m_running;
-
-	/** Whether the thread was stopped by @a stop() or @a join(). */
-	bool m_stopped;
-
+  /** Whether the thread was stopped by @a stop() or @a join(). */
+  bool m_stopped;
 };
 
 
 /**
  * A @a Thread that can be waited on.
  */
-class WaitThread : public Thread
-{
+class WaitThread : public Thread {
+ public:
+  /**
+   * Constructor.
+   */
+  WaitThread();
 
-public:
-	/**
-	 * Constructor.
-	 */
-	WaitThread();
+  /**
+   * Destructor.
+   */
+  virtual ~WaitThread();
 
-	/**
-	 * Destructor.
-	 */
-	virtual ~WaitThread();
+  // @copydoc
+  void stop() override;
 
-	// @copydoc
-	virtual void stop();
+  // @copydoc
+  bool join() override;
 
-	// @copydoc
-	virtual bool join();
+  /**
+   * Wait for the specified amount of time.
+   * @param seconds the number of seconds to wait.
+   * @return true if this @a WaitThread is still running and not yet stopped.
+   */
+  bool Wait(int seconds);
 
-	/**
-	 * Wait for the specified amount of time.
-	 * @param seconds the number of seconds to wait.
-	 * @return true if this @a WaitThread is still running and not yet stopped.
-	 */
-	bool Wait(int seconds);
 
-private:
-	/** the mutex for waiting. */
-	pthread_mutex_t m_mutex;
+ private:
+  /** the mutex for waiting. */
+  pthread_mutex_t m_mutex;
 
-	/** the condition for waiting. */
-	pthread_cond_t m_cond;
-
+  /** the condition for waiting. */
+  pthread_cond_t m_cond;
 };
 
-#endif // LIBUTILS_THREAD_H_
+}  // namespace ebusd
+
+#endif  // LIB_UTILS_THREAD_H_

@@ -1,4 +1,6 @@
-AM_CXXFLAGS = -Wconversion
+AM_CXXFLAGS = -I$(top_srcdir)/src \
+	      -isystem$(top_srcdir) \
+	      -Wconversion
 
 noinst_LIBRARIES = libutils.a
 
@@ -8,12 +10,12 @@ libutils_a_SOURCES = log.cpp \
 		     tcpsocket.h \
 		     thread.cpp \
 		     thread.h \
-		     clock.h \
 		     clock.cpp \
+		     clock.h \
 		     queue.h \
 		     notify.h \
-		     rotatefile.h \
-		     rotatefile.cpp
+		     rotatefile.cpp \
+		     rotatefile.h
 
 distclean-local:
 	-rm -f Makefile.in

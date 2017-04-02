@@ -1,6 +1,6 @@
 #!/bin/sh
 # ebusd - daemon for communication with eBUS heating systems.
-# Copyright (C) 2014-2016 John Baier <ebusd@ebusd.eu>
+# Copyright (C) 2014-2017 John Baier <ebusd@ebusd.eu>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -53,7 +53,7 @@ Version: $VERSION
 Maintainer: John Baier <ebusd@ebusd.eu>
 Homepage: https://github.com/john30/ebusd
 Bugs: https://github.com/john30/ebusd/issues
-Depends: libstdc++6, libc6, libgcc1
+Depends: libstdc++6 (>= 4.8.1), libc6, libgcc1
 Description: eBUS daemon.
  ebusd is a daemon for handling communication with eBUS devices connected to a
  2-wire bus system.

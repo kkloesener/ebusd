@@ -1,6 +1,6 @@
 /*
  * ebusd - daemon for communication with eBUS heating systems.
- * Copyright (C) 2014-2016 John Baier <ebusd@ebusd.eu>
+ * Copyright (C) 2014-2017 John Baier <ebusd@ebusd.eu>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,60 +16,85 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIBUTILS_LOG_H_
-#define LIBUTILS_LOG_H_
+#ifndef LIB_UTILS_LOG_H_
+#define LIB_UTILS_LOG_H_
 
-/** \file log.h */
+namespace ebusd {
+
+/** \file lib/utils/log.h */
 
 /** the available log facilities. */
 enum LogFacility {
-	lf_main=0,  //!< main loop
-	lf_network, //!< network related
-	lf_bus,     //!< eBUS related
-	lf_update,  //!< updates found while listening to the bus
-	lf_other,   //!< all other log facilities
-	lf_COUNT=5  //!< number of available log facilities
+  lf_main = 0,  //!< main loop
+  lf_network,   //!< network related
+  lf_bus,       //!< eBUS related
+  lf_update,    //!< updates found while listening to the bus
+  lf_other,     //!< all other log facilities
+  lf_COUNT = 5  //!< number of available log facilities
 };
 
-/** macro for enabling all log facilities. */
-#define LF_ALL ((1<<lf_main) | (1<<lf_network) | (1<<lf_bus) | (1<<lf_update) | (1<<lf_other))
+/** macro for all log facilities. */
+#define LF_ALL ((1 << lf_main) | (1 << lf_network) | (1 << lf_bus) | (1 << lf_update) | (1 << lf_other))
 
 /** the available log levels. */
 enum LogLevel {
-	ll_none=0, //!< no level at all
-	ll_error,  //!< error message
-	ll_notice, //!< important message
-	ll_info,   //!< informational message
-	ll_debug,  //!< debugging message (normally suppressed)
-	ll_COUNT=5 //!< number of available log levels
+  ll_none = 0,  //!< no level at all
+  ll_error,     //!< error message
+  ll_notice,    //!< important message
+  ll_info,      //!< informational message
+  ll_debug,     //!< debugging message (normally suppressed)
+  ll_COUNT = 5  //!< number of available log levels
 };
 
 /**
- * Set the log facilities from the string.
- * @param facilities the string to parse the facilities from (separated by comma).
- * @return true on success, false on error.
+ * Parse the log facility from the string.
+ * @param facility the string to parse the singular facility from.
+ * @return the @a LogFacility, or @a lf_COUNT on error.
  */
-bool setLogFacilities(const char* facilities);
+LogFacility parseLogFacility(const char* facility);
 
 /**
- * Get the log facilities.
- * @param buffer the buffer into which the facilities are written to (separated by comma, buffer needs to be at last 32 characters long).
- * @return true on success, false on error.
+ * Parse the log facilities from the string.
+ * @param facilities the string to parse the list of facilities from (separated by comma).
+ * @return the @a LogFacility list as bit mask (1 << facility), or -1 on error.
  */
-bool getLogFacilities(char* buffer);
+int parseLogFacilities(const char* facilities);
+
+/**
+ * Get the log facility as string.
+ * @param facility the @a LogFacility.
+ * @return the log facility as string.
+ */
+const char* getLogFacilityStr(LogFacility facility);
 
 /**
  * Parse the log level from the string.
  * @param level the level as string.
- * @return true on success, false on error.
+ * @return the @a LogLevel, or @a ll_COUNT on error.
  */
-bool setLogLevel(const char* level);
+LogLevel parseLogLevel(const char* level);
 
 /**
- * Get the log level.
- * @return the level as string.
+ * Get the log level as string.
+ * @param level the @a LogLevel.
+ * @return the log level as string.
  */
-const char* getLogLevel();
+const char* getLogLevelStr(LogLevel level);
+
+/**
+ * Set the log level for the specified facilities.
+ * @param facilities the log facilities as bit mask (1 << facility).
+ * @param level the @a LogLevel to set.
+ * @return true when a level was changed for a facility, false when no level was changed at all.
+ */
+bool setFacilitiesLogLevel(int facilities, LogLevel level);
+
+/**
+ * Get the log level for the specified facility.
+ * @param facility the @a LogFacility.
+ * @return the @a LogLevel.
+ */
+LogLevel getFacilityLogLevel(LogFacility facility);
 
 /**
  * Set the log file to use.
@@ -125,15 +150,21 @@ void logWrite(const char* facility, const LogLevel level, const char* message, .
 #define logDebug(facility, ...) (needsLog(facility, ll_debug) ? logWrite(facility, ll_debug, __VA_ARGS__) : void(0))
 
 /** A macro for an error message that calls the logging function only if needed. */
-#define logOtherError(facility, ...) (needsLog(lf_other, ll_error) ? logWrite(facility, ll_error, __VA_ARGS__) : void(0))
+#define logOtherError(facility, ...) \
+  (needsLog(lf_other, ll_error) ? logWrite(facility, ll_error, __VA_ARGS__) : void(0))
 
 /** A macro for a notice message that calls the logging function only if needed. */
-#define logOtherNotice(facility, ...) (needsLog(lf_other, ll_notice) ? logWrite(facility, ll_notice, __VA_ARGS__) : void(0))
+#define logOtherNotice(facility, ...) \
+  (needsLog(lf_other, ll_notice) ? logWrite(facility, ll_notice, __VA_ARGS__) : void(0))
 
 /** A macro for an info message that calls the logging function only if needed. */
-#define logOtherInfo(facility, ...) (needsLog(lf_other, ll_info) ? logWrite(facility, ll_info, __VA_ARGS__) : void(0))
+#define logOtherInfo(facility, ...) \
+  (needsLog(lf_other, ll_info) ? logWrite(facility, ll_info, __VA_ARGS__) : void(0))
 
 /** A macro for a debug message that calls the logging function only if needed. */
-#define logOtherDebug(facility, ...) (needsLog(lf_other, ll_debug) ? logWrite(facility, ll_debug, __VA_ARGS__) : void(0))
+#define logOtherDebug(facility, ...) \
+  (needsLog(lf_other, ll_debug) ? logWrite(facility, ll_debug, __VA_ARGS__) : void(0))
 
-#endif // LIBUTILS_LOG_H_
+}  // namespace ebusd
+
+#endif  // LIB_UTILS_LOG_H_
