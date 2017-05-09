@@ -42,30 +42,29 @@ using std::setw;
 using std::endl;
 
 
-bool DataType::dump(ostream& output, const size_t length, const bool appendSeparatorDivisor) const {
-  output << m_id;
+bool DataType::dump(size_t length, bool appendSeparatorDivisor, ostream* output) const {
+  *output << m_id;
   if (isAdjustableLength()) {
     if (length == REMAIN_LEN) {
-      output << ":*";
+      *output << ":*";
     } else {
-      output << ":" << static_cast<unsigned>(length);
+      *output << ":" << static_cast<unsigned>(length);
     }
   }
   if (appendSeparatorDivisor) {
-    output << FIELD_SEPARATOR;
+    *output << FIELD_SEPARATOR;
   }
   return false;
 }
 
 
-result_t StringDataType::readRawValue(SymbolString& input, const size_t offset,
-    const size_t length, unsigned int& value) {
+result_t StringDataType::readRawValue(size_t offset, size_t length, const SymbolString& input,
+    unsigned int* value) const {
   return RESULT_EMPTY;
 }
 
-result_t StringDataType::readSymbols(SymbolString& input,
-    const size_t offset, const size_t length,
-    ostringstream& output, OutputFormat outputFormat) {
+result_t StringDataType::readSymbols(size_t offset, size_t length, const SymbolString& input,
+    OutputFormat outputFormat, ostream* output) const {
   size_t start = 0, count = length;
   int incr = 1;
   symbol_t symbol;
@@ -81,16 +80,16 @@ result_t StringDataType::readSymbols(SymbolString& input,
   }
 
   if (outputFormat & OF_JSON) {
-    output << '"';
+    *output << '"';
   }
-  output << setfill('0') << (m_isHex ? hex : dec);
+  *output << setfill('0') << (m_isHex ? hex : dec);
   for (size_t index = start, i = 0; i < count; index += incr, i++) {
     symbol = input.dataAt(offset + index);
     if (m_isHex) {
       if (i > 0) {
-        output << ' ';
+        *output << ' ';
       }
-      output << setw(2) << static_cast<unsigned>(symbol);
+      *output << setw(2) << static_cast<unsigned>(symbol);
     } else {
       if (symbol == 0x00) {
         terminated = true;
@@ -101,22 +100,21 @@ result_t StringDataType::readSymbols(SymbolString& input,
           symbol = '?';
         } else if (outputFormat & OF_JSON) {
           if (symbol == '"' || symbol == '\\') {
-            output << '\\';  // escape
+            *output << '\\';  // escape
           }
         }
-        output << static_cast<char>(symbol);
+        *output << static_cast<char>(symbol);
       }
     }
   }
   if (outputFormat & OF_JSON) {
-    output << '"';
+    *output << '"';
   }
   return RESULT_OK;
 }
 
-result_t StringDataType::writeSymbols(istringstream& input,
-    size_t offset, const size_t length,
-    SymbolString& output, size_t* usedLength) {
+result_t StringDataType::writeSymbols(size_t offset, size_t length, istringstream* input,
+    SymbolString* output, size_t* usedLength) const {
   size_t start = 0, count = length;
   bool remainder = count == REMAIN_LEN && hasFlag(ADJ);
   int incr = 1;
@@ -132,7 +130,7 @@ result_t StringDataType::writeSymbols(istringstream& input,
       count = 1;
     }
     for (size_t index = start, i = 0; i < count; index += incr, i++) {
-      output.dataAt(offset + index) = (symbol_t)m_replacement;  // fill up with replacement
+      output->dataAt(offset + index) = (symbol_t)m_replacement;  // fill up with replacement
     }
     if (usedLength != NULL) {
       *usedLength = count;
@@ -143,39 +141,39 @@ result_t StringDataType::writeSymbols(istringstream& input,
   size_t i = 0, index;
   for (index = start; i < count; index += incr, i++) {
     if (m_isHex) {
-      while (!input.eof() && input.peek() == ' ') {
-        input.get();
+      while (!input->eof() && input->peek() == ' ') {
+        input->get();
       }
-      if (input.eof()) {  // no more digits
+      if (input->eof()) {  // no more digits
         value = m_replacement;  // fill up with replacement
       } else {
         token.clear();
-        token.push_back((symbol_t)input.get());
-        if (input.eof()) {
+        token.push_back((symbol_t)input->get());
+        if (input->eof()) {
           return RESULT_ERR_INVALID_NUM;  // too short hex value
         }
-        token.push_back((symbol_t)input.get());
-        if (input.eof()) {
+        token.push_back((symbol_t)input->get());
+        if (input->eof()) {
           return RESULT_ERR_INVALID_NUM;  // too short hex value
         }
-        value = parseInt(token.c_str(), 16, 0, 0xff, result);
+        value = parseInt(token.c_str(), 16, 0, 0xff, &result);
         if (result != RESULT_OK) {
           return result;  // invalid hex value
         }
       }
     } else {
-      if (input.eof()) {
+      if (input->eof()) {
         value = m_replacement;
       } else {
-        value = input.get();
-        if (input.eof() || value < 0x20) {
+        value = input->get();
+        if (input->eof() || value < 0x20) {
           value = m_replacement;
         }
       }
     }
-    if (remainder && input.eof() && i > 0) {
+    if (remainder && input->eof() && i > 0) {
       if (value == 0x00 && !m_isHex) {
-        output.dataAt(offset + index) = 0;
+        output->dataAt(offset + index) = 0;
         index += incr;
       }
       break;
@@ -183,7 +181,7 @@ result_t StringDataType::writeSymbols(istringstream& input,
     if (value > 0xff) {
       return RESULT_ERR_OUT_OF_RANGE;  // value out of range
     }
-    output.dataAt(offset + index) = (symbol_t)value;
+    output->dataAt(offset + index) = (symbol_t)value;
   }
 
   if (!remainder && i < count) {
@@ -196,14 +194,13 @@ result_t StringDataType::writeSymbols(istringstream& input,
 }
 
 
-result_t DateTimeDataType::readRawValue(SymbolString& input, const size_t offset,
-    const size_t length, unsigned int& value) {
+result_t DateTimeDataType::readRawValue(size_t offset, size_t length, const SymbolString& input,
+    unsigned int* value) const {
   return RESULT_EMPTY;
 }
 
-result_t DateTimeDataType::readSymbols(SymbolString& input,
-    const size_t offset, const size_t length,
-    ostringstream& output, OutputFormat outputFormat) {
+result_t DateTimeDataType::readSymbols(size_t offset, size_t length, const SymbolString& input,
+    OutputFormat outputFormat, ostream* output) const {
   size_t start = 0, count = length;
   int incr = 1;
   symbol_t symbol, last = 0, hour = 0;
@@ -218,7 +215,7 @@ result_t DateTimeDataType::readSymbols(SymbolString& input,
   }
 
   if (outputFormat & OF_JSON) {
-    output << '"';
+    *output << '"';
   }
   int type = (m_hasDate?2:0) | (m_hasTime?1:0);
   for (size_t index = start, i = 0; i < count; index += incr, i++) {
@@ -236,13 +233,13 @@ result_t DateTimeDataType::readSymbols(SymbolString& input,
     case 2:  // date only
       if (!hasFlag(REQ) && symbol == m_replacement) {
         if (i + 1 != length) {
-          output << NULL_VALUE << ".";
+          *output << NULL_VALUE << ".";
           break;
         } else if (last == m_replacement) {
           if (length == 2) {  // number of days since 01.01.1900
-            output << NULL_VALUE << ".";
+            *output << NULL_VALUE << ".";
           }
-          output << NULL_VALUE;
+          *output << NULL_VALUE;
           break;
         }
       }
@@ -259,29 +256,29 @@ result_t DateTimeDataType::readSymbols(SymbolString& input,
           y++;
           m -= 12;
         }
-        output << dec << setfill('0') << setw(2) << static_cast<unsigned>(d) << "."
-            << setw(2) << static_cast<unsigned>(m) << "." << static_cast<unsigned>(y + 1900);
+        *output << dec << setfill('0') << setw(2) << static_cast<unsigned>(d) << "."
+                << setw(2) << static_cast<unsigned>(m) << "." << static_cast<unsigned>(y + 1900);
         break;
       }
       if (i + 1 == length) {
-        output << (2000 + symbol);
+        *output << (2000 + symbol);
       } else if (symbol < 1 || (i == 0 && symbol > 31) || (i == 1 && symbol > 12)) {
         return RESULT_ERR_OUT_OF_RANGE;  // invalid date
       } else {
-        output << setw(2) << dec << setfill('0') << static_cast<unsigned>(symbol) << ".";
+        *output << setw(2) << dec << setfill('0') << static_cast<unsigned>(symbol) << ".";
       }
       break;
 
     case 1:  // time only
       if (!hasFlag(REQ) && symbol == m_replacement) {
         if (length == 1) {  // truncated time
-          output << NULL_VALUE << ":" << NULL_VALUE;
+          *output << NULL_VALUE << ":" << NULL_VALUE;
           break;
         }
         if (i > 0) {
-          output << ":";
+          *output << ":";
         }
-        output << NULL_VALUE;
+        *output << NULL_VALUE;
         break;
       }
       if (hasFlag(SPE)) {  // minutes since midnight
@@ -289,15 +286,15 @@ result_t DateTimeDataType::readSymbols(SymbolString& input,
           last = symbol;
           continue;
         }
-        int minutes = symbol*256 + last;
+        unsigned int minutes = symbol*256 + last;
         if (minutes > 24*60) {
           return RESULT_ERR_OUT_OF_RANGE;  // invalid value
         }
-        int hour = minutes / 60;
-        if (hour > 24) {
+        unsigned int minutesHour = minutes / 60;
+        if (minutesHour > 24) {
           return RESULT_ERR_OUT_OF_RANGE;  // invalid hour
         }
-        output << setw(2) << dec << setfill('0') << static_cast<unsigned>(hour);
+        *output << setw(2) << dec << setfill('0') << minutesHour;
         symbol = (symbol_t)(minutes % 60);
       } else if (length == 1) {  // truncated time
         if (m_bitCount < 8) {
@@ -320,22 +317,21 @@ result_t DateTimeDataType::readSymbols(SymbolString& input,
         return RESULT_ERR_OUT_OF_RANGE;  // invalid time
       }
       if (i > 0) {
-        output << ":";
+        *output << ":";
       }
-      output << setw(2) << dec << setfill('0') << static_cast<unsigned>(symbol);
+      *output << setw(2) << dec << setfill('0') << static_cast<unsigned>(symbol);
       break;
     }
     last = symbol;
   }
   if (outputFormat & OF_JSON) {
-    output << '"';
+    *output << '"';
   }
   return RESULT_OK;
 }
 
-result_t DateTimeDataType::writeSymbols(istringstream& input,
-    size_t offset, const size_t length,
-    SymbolString& output, size_t* usedLength) {
+result_t DateTimeDataType::writeSymbols(size_t offset, size_t length, istringstream* input,
+    SymbolString* output, size_t* usedLength) const {
   size_t start = 0, count = length;
   bool remainder = count == REMAIN_LEN && hasFlag(ADJ);
   int incr = 1;
@@ -351,7 +347,7 @@ result_t DateTimeDataType::writeSymbols(istringstream& input,
       count = 1;
     }
     for (size_t index = start, i = 0; i < count; index += incr, i++) {
-      output.dataAt(offset + index) = (symbol_t)m_replacement;  // fill up with replacement
+      output->dataAt(offset + index) = (symbol_t)m_replacement;  // fill up with replacement
     }
     if (usedLength != NULL) {
       *usedLength = count;
@@ -369,14 +365,14 @@ result_t DateTimeDataType::writeSymbols(istringstream& input,
       if (length == 4 && i == 2) {
         continue;  // skip weekday in between
       }
-      if (input.eof() || !getline(input, token, '.')) {
+      if (input->eof() || !getline(*input, token, '.')) {
         return RESULT_ERR_EOF;  // incomplete
       }
-      if (!hasFlag(REQ) && strcmp(token.c_str(), NULL_VALUE) == 0) {
+      if (!hasFlag(REQ) && token == NULL_VALUE) {
         value = m_replacement;
         break;
       }
-      value = parseInt(token.c_str(), 10, 0, 2099, result);
+      value = parseInt(token.c_str(), 10, 0, 2099, &result);
       if (result != RESULT_OK) {
         return result;  // invalid date part
       }
@@ -389,7 +385,7 @@ result_t DateTimeDataType::writeSymbols(istringstream& input,
           int l = last <= 2 ? 1 : 0;
           int mjd = 14956 + lastLast + static_cast<int>((y-l)*365.25) + static_cast<int>((last+1+l*12)*30.6001);
           value = mjd - 15020;  // 01.01.1900
-          output.dataAt(offset + index) = (symbol_t)(value&0xff);
+          output->dataAt(offset + index) = (symbol_t)(value&0xff);
           value >>=  8;
           index += incr;
           skip = false;
@@ -404,10 +400,10 @@ result_t DateTimeDataType::writeSymbols(istringstream& input,
           int mjd = 14956 + lastLast + static_cast<int>((y-l)*365.25) + static_cast<int>((last+1+l*12)*30.6001);
           int daysSinceSunday = (mjd+3) % 7;  // Sun=0
           if (hasFlag(BCD)) {
-            output.dataAt(offset + index - incr) = (symbol_t)((6+daysSinceSunday) % 7);  // Sun=0x06
+            output->dataAt(offset + index - incr) = (symbol_t)((6+daysSinceSunday) % 7);  // Sun=0x06
           } else {
             // Sun=0x07
-            output.dataAt(offset + index - incr) = (symbol_t)(daysSinceSunday == 0 ? 7 : daysSinceSunday);
+            output->dataAt(offset + index - incr) = (symbol_t)(daysSinceSunday == 0 ? 7 : daysSinceSunday);
           }
         }
         if (value >= 2000) {
@@ -422,10 +418,10 @@ result_t DateTimeDataType::writeSymbols(istringstream& input,
       break;
 
     case 1:  // time only
-      if (input.eof() || !getline(input, token, LENGTH_SEPARATOR)) {
+      if (input->eof() || !getline(*input, token, LENGTH_SEPARATOR)) {
         return RESULT_ERR_EOF;  // incomplete
       }
-      if (!hasFlag(REQ) && strcmp(token.c_str(), NULL_VALUE) == 0) {
+      if (!hasFlag(REQ) && token == NULL_VALUE) {
         value = m_replacement;
         if (length == 1) {  // truncated time
           if (i == 0) {
@@ -439,7 +435,7 @@ result_t DateTimeDataType::writeSymbols(istringstream& input,
         }
         break;
       }
-      value = parseInt(token.c_str(), 10, 0, 59, result);
+      value = parseInt(token.c_str(), 10, 0, 59, &result);
       if (result != RESULT_OK) {
         return result;  // invalid time part
       }
@@ -452,7 +448,7 @@ result_t DateTimeDataType::writeSymbols(istringstream& input,
           break;
         }
         value += last*60;
-        output.dataAt(offset + index) = (symbol_t)(value&0xff);
+        output->dataAt(offset + index) = (symbol_t)(value&0xff);
         value >>=  8;
         index += incr;
       } else if (length == 1) {  // truncated time
@@ -480,7 +476,7 @@ result_t DateTimeDataType::writeSymbols(istringstream& input,
       if (value > 0xff) {
         return RESULT_ERR_OUT_OF_RANGE;  // value out of range
       }
-      output.dataAt(offset + index) = (symbol_t)value;
+      output->dataAt(offset + index) = (symbol_t)value;
     }
   }
 
@@ -494,7 +490,7 @@ result_t DateTimeDataType::writeSymbols(istringstream& input,
 }
 
 
-size_t NumberDataType::calcPrecision(const int divisor) {
+size_t NumberDataType::calcPrecision(int divisor) {
   size_t precision = 0;
   if (divisor > 1) {
     for (unsigned int exp = 1; exp < MAX_DIVISOR; exp *= 10, precision++) {
@@ -506,28 +502,28 @@ size_t NumberDataType::calcPrecision(const int divisor) {
   return precision;
 }
 
-bool NumberDataType::dump(ostream& output, size_t length, const bool appendSeparatorDivisor) const {
+bool NumberDataType::dump(size_t length, bool appendSeparatorDivisor, ostream* output) const {
   if (m_bitCount < 8) {
-    DataType::dump(output, m_bitCount, appendSeparatorDivisor);
+    DataType::dump(m_bitCount, appendSeparatorDivisor, output);
   } else {
-    DataType::dump(output, length, appendSeparatorDivisor);
+    DataType::dump(length, appendSeparatorDivisor, output);
   }
   if (!appendSeparatorDivisor) {
     return false;
   }
   if (m_baseType) {
     if (m_baseType->m_divisor != m_divisor) {
-      output << static_cast<int>(m_divisor / m_baseType->m_divisor);
+      *output << (m_divisor / m_baseType->m_divisor);
       return true;
     }
   } else if (m_divisor != 1) {
-    output << static_cast<int>(m_divisor);
+    *output << m_divisor;
     return true;
   }
   return false;
 }
 
-result_t NumberDataType::derive(int divisor, size_t bitCount, NumberDataType* &derived) {
+result_t NumberDataType::derive(int divisor, size_t bitCount, const NumberDataType** derived) const {
   if (divisor == 0) {
     divisor = 1;
   }
@@ -549,7 +545,7 @@ result_t NumberDataType::derive(int divisor, size_t bitCount, NumberDataType* &d
     }
   }
   if (divisor == m_divisor && bitCount == m_bitCount) {
-    derived = this;
+    *derived = this;
     return RESULT_OK;
   }
   if (-MAX_DIVISOR > divisor || divisor > MAX_DIVISOR) {
@@ -569,20 +565,18 @@ result_t NumberDataType::derive(int divisor, size_t bitCount, NumberDataType* &d
     return RESULT_ERR_INVALID_ARG;
   }
   if (m_bitCount < 8) {
-    derived = new NumberDataType(m_id, bitCount, m_flags, m_replacement,
-      m_firstBit, divisor);
+    *derived = new NumberDataType(m_id, bitCount, m_flags, m_replacement,
+      m_firstBit, divisor, m_baseType ? m_baseType : this);
   } else {
-    derived = new NumberDataType(m_id, bitCount, m_flags, m_replacement,
-      m_minValue, m_maxValue, divisor);
+    *derived = new NumberDataType(m_id, bitCount, m_flags, m_replacement,
+      m_minValue, m_maxValue, divisor, m_baseType ? m_baseType : this);
   }
-  derived->m_baseType = m_baseType ? m_baseType : this;
-  DataTypeList::getInstance()->addCleanup(derived);
+  DataTypeList::getInstance()->addCleanup(*derived);
   return RESULT_OK;
 }
 
-result_t NumberDataType::readRawValue(SymbolString& input,
-    size_t offset, const size_t length,
-    unsigned int& value) {
+result_t NumberDataType::readRawValue(size_t offset, size_t length, const SymbolString& input,
+    unsigned int* value) const {
   size_t start = 0, count = length;
   int incr = 1;
   symbol_t symbol;
@@ -595,13 +589,13 @@ result_t NumberDataType::readRawValue(SymbolString& input,
     incr = -1;
   }
 
-  value = 0;
+  *value = 0;
   unsigned int exp = 1;
   for (size_t index = start, i = 0; i < count; index += incr, i++) {
     symbol = input.dataAt(offset + index);
     if (hasFlag(BCD)) {
       if (!hasFlag(REQ) && symbol == (m_replacement & 0xff)) {
-        value = m_replacement;
+        *value = m_replacement;
         return RESULT_OK;
       }
       if (!hasFlag(HCD)) {
@@ -612,40 +606,39 @@ result_t NumberDataType::readRawValue(SymbolString& input,
       } else if (symbol > 0x63) {
         return RESULT_ERR_OUT_OF_RANGE;  // invalid HCD
       }
-      value += symbol * exp;
+      *value += symbol * exp;
       exp *= 100;
     } else {
-      value |= symbol * exp;
+      *value |= symbol * exp;
       exp <<=  8;
     }
   }
   if (m_firstBit > 0) {
-    value >>=  m_firstBit;
+    *value >>=  m_firstBit;
   }
   if (m_bitCount < 8) {
-    value &= (1 << m_bitCount) - 1;
+    *value &= (1 << m_bitCount) - 1;
   }
 
   return RESULT_OK;
 }
 
-result_t NumberDataType::readSymbols(SymbolString& input,
-    const size_t offset, const size_t length,
-    ostringstream& output, OutputFormat outputFormat) {
+result_t NumberDataType::readSymbols(size_t offset, size_t length, const SymbolString& input,
+    OutputFormat outputFormat, ostream* output) const {
   unsigned int value = 0;
   int signedValue;
 
-  result_t result = readRawValue(input, offset, length, value);
+  result_t result = readRawValue(offset, length, input, &value);
   if (result != RESULT_OK) {
     return result;
   }
-  output << setw(0) << dec;  // initialize output
+  *output << setw(0) << dec;  // initialize output
 
   if (!hasFlag(REQ) && value == m_replacement) {
     if (outputFormat & OF_JSON) {
-      output << "null";
+      *output << "null";
     } else {
-      output << NULL_VALUE;
+      *output << NULL_VALUE;
     }
     return RESULT_OK;
   }
@@ -695,21 +688,21 @@ result_t NumberDataType::readSymbols(SymbolString& input,
         }
       }
       if (m_precision != 0) {
-        output << fixed << setprecision(static_cast<int>(m_precision+6));
+        *output << fixed << setprecision(static_cast<int>(m_precision+6));
       } else if (val == 0) {
-        output << fixed << setprecision(1);
+        *output << fixed << setprecision(1);
       }
-      output << static_cast<double>(val);
+      *output << static_cast<double>(val);
       return RESULT_OK;
     }
     if (!negative) {
       if (m_divisor < 0) {
-        output << (static_cast<float>(value) * static_cast<float>(-m_divisor));
+        *output << (static_cast<float>(value) * static_cast<float>(-m_divisor));
       } else if (m_divisor <= 1) {
-        output << static_cast<unsigned>(value);
+        *output << value;
       } else {
-        output << setprecision(static_cast<int>(m_precision))
-               << fixed << (static_cast<float>(value) / static_cast<float>(m_divisor));
+        *output << setprecision(static_cast<int>(m_precision))
+                << fixed << (static_cast<float>(value) / static_cast<float>(m_divisor));
       }
       return RESULT_OK;
     }
@@ -720,30 +713,27 @@ result_t NumberDataType::readSymbols(SymbolString& input,
     signedValue = static_cast<int>(value);
   }
   if (m_divisor < 0) {
-    output << fixed << setprecision(0)
+    *output << fixed << setprecision(0)
         << (static_cast<float>(signedValue) * static_cast<float>(-m_divisor));
   } else if (m_divisor <= 1) {
     if (hasFlag(FIX) && hasFlag(BCD)) {
       if (outputFormat & OF_JSON) {
-        output << '"';
-        output << setw(static_cast<int>(length * 2)) << setfill('0');
-        output << static_cast<signed>(signedValue) << setw(0);
-        output << '"';
+        *output << '"' << setw(static_cast<int>(length * 2))
+                << setfill('0') << signedValue << setw(0) << '"';
         return RESULT_OK;
       }
-      output << setw(static_cast<int>(length * 2)) << setfill('0');
+      *output << setw(static_cast<int>(length * 2)) << setfill('0');
     }
-    output << static_cast<signed>(signedValue) << setw(0);
+    *output << signedValue << setw(0);
   } else {
-    output << setprecision(static_cast<int>(m_precision))
-           << fixed << (static_cast<float>(signedValue) / static_cast<float>(m_divisor));
+    *output << setprecision(static_cast<int>(m_precision))
+            << fixed << (static_cast<float>(signedValue) / static_cast<float>(m_divisor));
   }
   return RESULT_OK;
 }
 
-result_t NumberDataType::writeRawValue(unsigned int value,
-    const size_t offset, const size_t length,
-    SymbolString& output, size_t* usedLength) {
+result_t NumberDataType::writeRawValue(unsigned int value, size_t offset, size_t length,
+    SymbolString* output, size_t* usedLength) const {
   size_t start = 0, count = length;
   int incr = 1;
   symbol_t symbol;
@@ -775,10 +765,10 @@ result_t NumberDataType::writeRawValue(unsigned int value,
       symbol = (value / exp) & 0xff;
       exp <<=  8;
     }
-    if (index == start && (m_bitCount % 8) != 0 && offset + index < output.getDataSize()) {
-      output.dataAt(offset + index) |= symbol;
+    if (index == start && (m_bitCount % 8) != 0 && offset + index < output->getDataSize()) {
+      output->dataAt(offset + index) |= symbol;
     } else {
-      output.dataAt(offset + index) = symbol;
+      output->dataAt(offset + index) = symbol;
     }
   }
   if (usedLength != NULL) {
@@ -787,17 +777,16 @@ result_t NumberDataType::writeRawValue(unsigned int value,
   return RESULT_OK;
 }
 
-result_t NumberDataType::writeSymbols(istringstream& input,
-    const size_t offset, const size_t length,
-    SymbolString& output, size_t* usedLength) {
+result_t NumberDataType::writeSymbols(size_t offset, size_t length, istringstream* input,
+    SymbolString* output, size_t* usedLength) const {
   unsigned int value;
 
-  const char* str = input.str().c_str();
-  if (!hasFlag(REQ) && (isIgnored() || strcasecmp(str, NULL_VALUE) == 0)) {
+  if (!hasFlag(REQ) && (isIgnored() || input->str() == NULL_VALUE)) {
     value = m_replacement;  // replacement value
-  } else if (str == NULL || *str == 0) {
+  } else if (input->str().empty()) {
     return RESULT_ERR_EOF;  // input too short
   } else if (hasFlag(EXP)) {  // IEEE 754 binary32
+    const char* str = input->str().c_str();
     char* strEnd = NULL;
     double dvalue = strtod(str, &strEnd);
     if (strEnd == NULL || strEnd == str || *strEnd != 0) {
@@ -836,6 +825,7 @@ result_t NumberDataType::writeSymbols(istringstream& input,
     }
 #endif
   } else {
+    const char* str = input->str().c_str();
     char* strEnd = NULL;
     if (m_divisor == 1) {
       if (hasFlag(SIG)) {
@@ -852,7 +842,6 @@ result_t NumberDataType::writeSymbols(istringstream& input,
         return RESULT_ERR_INVALID_NUM;  // invalid value
       }
     } else {
-      char* strEnd = NULL;
       double dvalue = strtod(str, &strEnd);
       if (strEnd == NULL || strEnd == str || *strEnd != 0) {
         return RESULT_ERR_INVALID_NUM;  // invalid value
@@ -906,8 +895,8 @@ bool DataTypeList::s_contrib_initialized = libebus_contrib_register();
 DataTypeList::DataTypeList() {
   add(new StringDataType("STR", MAX_LEN*8, ADJ, ' '));  // >= 1 byte character string filled up with space
   // unsigned decimal in BCD, 0000 - 9999 (fixed length)
-  add(new NumberDataType("PIN", 16, FIX|BCD|REV, 0xffff, 0, 0x9999, 1));
-  add(new NumberDataType("UCH", 8, 0, 0xff, 0, 0xfe, 1));  // unsigned integer, 0 - 254
+  add(new NumberDataType("PIN", 16, FIX|BCD|REV, 0xffff, 0, 0x9999, 1, NULL));
+  add(new NumberDataType("UCH", 8, 0, 0xff, 0, 0xfe, 1, NULL));  // unsigned integer, 0 - 254
   add(new StringDataType("IGN", MAX_LEN*8, IGN|ADJ, 0));  // >= 1 byte ignored data
   // >= 1 byte character string filled up with 0x00 (null terminated string)
   add(new StringDataType("NTS", MAX_LEN*8, ADJ, 0));
@@ -945,56 +934,56 @@ DataTypeList::DataTypeList() {
   add(new DateTimeDataType("TTH", 6, 0, 0, false, true, 30));
   // truncated time (only multiple of 15 minutes), 00:00 - 24:00 (minutes div 15 + hour * 4 as integer)
   add(new DateTimeDataType("TTQ", 7, 0, 0, false, true, 15));
-  add(new NumberDataType("BDY", 8, DAY, 0x07, 0, 6, 1));  // weekday, "Mon" - "Sun" (0x00 - 0x06) [eBUS type]
-  add(new NumberDataType("HDY", 8, DAY, 0x00, 1, 7, 1));  // weekday, "Mon" - "Sun" (0x01 - 0x07) [Vaillant type]
-  add(new NumberDataType("BCD", 8, BCD, 0xff, 0, 99, 1));  // unsigned decimal in BCD, 0 - 99
-  add(new NumberDataType("BCD", 16, BCD, 0xffff, 0, 9999, 1));  // unsigned decimal in BCD, 0 - 9999
-  add(new NumberDataType("BCD", 24, BCD, 0xffffff, 0, 999999, 1));  // unsigned decimal in BCD, 0 - 999999
-  add(new NumberDataType("BCD", 32, BCD, 0xffffffff, 0, 99999999, 1));  // unsigned decimal in BCD, 0 - 99999999
-  add(new NumberDataType("HCD", 32, HCD|BCD|REQ, 0, 0, 99999999, 1));  // unsigned decimal in HCD, 0 - 99999999
-  add(new NumberDataType("HCD", 8, HCD|BCD|REQ, 0, 0, 99, 1));  // unsigned decimal in HCD, 0 - 99
-  add(new NumberDataType("HCD", 16, HCD|BCD|REQ, 0, 0, 9999, 1));  // unsigned decimal in HCD, 0 - 9999
-  add(new NumberDataType("HCD", 24, HCD|BCD|REQ, 0, 0, 999999, 1));  // unsigned decimal in HCD, 0 - 999999
-  add(new NumberDataType("SCH", 8, SIG, 0x80, 0x81, 0x7f, 1));  // signed integer, -127 - +127
-  add(new NumberDataType("D1B", 8, SIG, 0x80, 0x81, 0x7f, 1));  // signed integer, -127 - +127
+  add(new NumberDataType("BDY", 8, DAY, 0x07, 0, 6, 1, NULL));  // weekday, "Mon" - "Sun" (0x00 - 0x06) [eBUS type]
+  add(new NumberDataType("HDY", 8, DAY, 0x00, 1, 7, 1, NULL));  // weekday, "Mon" - "Sun" (0x01 - 0x07) [Vaillant type]
+  add(new NumberDataType("BCD", 8, BCD, 0xff, 0, 99, 1, NULL));  // unsigned decimal in BCD, 0 - 99
+  add(new NumberDataType("BCD", 16, BCD, 0xffff, 0, 9999, 1, NULL));  // unsigned decimal in BCD, 0 - 9999
+  add(new NumberDataType("BCD", 24, BCD, 0xffffff, 0, 999999, 1, NULL));  // unsigned decimal in BCD, 0 - 999999
+  add(new NumberDataType("BCD", 32, BCD, 0xffffffff, 0, 99999999, 1, NULL));  // unsigned decimal in BCD, 0 - 99999999
+  add(new NumberDataType("HCD", 32, HCD|BCD|REQ, 0, 0, 99999999, 1, NULL));  // unsigned decimal in HCD, 0 - 99999999
+  add(new NumberDataType("HCD", 8, HCD|BCD|REQ, 0, 0, 99, 1, NULL));  // unsigned decimal in HCD, 0 - 99
+  add(new NumberDataType("HCD", 16, HCD|BCD|REQ, 0, 0, 9999, 1, NULL));  // unsigned decimal in HCD, 0 - 9999
+  add(new NumberDataType("HCD", 24, HCD|BCD|REQ, 0, 0, 999999, 1, NULL));  // unsigned decimal in HCD, 0 - 999999
+  add(new NumberDataType("SCH", 8, SIG, 0x80, 0x81, 0x7f, 1, NULL));  // signed integer, -127 - +127
+  add(new NumberDataType("D1B", 8, SIG, 0x80, 0x81, 0x7f, 1, NULL));  // signed integer, -127 - +127
   // unsigned number (fraction 1/2), 0 - 100 (0x00 - 0xc8, replacement 0xff)
-  add(new NumberDataType("D1C", 8, 0, 0xff, 0x00, 0xc8, 2));
+  add(new NumberDataType("D1C", 8, 0, 0xff, 0x00, 0xc8, 2, NULL));
   // signed number (fraction 1/256), -127.99 - +127.99
-  add(new NumberDataType("D2B", 16, SIG, 0x8000, 0x8001, 0x7fff, 256));
+  add(new NumberDataType("D2B", 16, SIG, 0x8000, 0x8001, 0x7fff, 256, NULL));
   // signed number (fraction 1/16), -2047.9 - +2047.9
-  add(new NumberDataType("D2C", 16, SIG, 0x8000, 0x8001, 0x7fff, 16));
+  add(new NumberDataType("D2C", 16, SIG, 0x8000, 0x8001, 0x7fff, 16, NULL));
   // signed number (fraction 1/1000), -32.767 - +32.767, little endian
-  add(new NumberDataType("FLT", 16, SIG, 0x8000, 0x8001, 0x7fff, 1000));
+  add(new NumberDataType("FLT", 16, SIG, 0x8000, 0x8001, 0x7fff, 1000, NULL));
   // signed number (fraction 1/1000), -32.767 - +32.767, big endian
-  add(new NumberDataType("FLR", 16, SIG|REV, 0x8000, 0x8001, 0x7fff, 1000));
+  add(new NumberDataType("FLR", 16, SIG|REV, 0x8000, 0x8001, 0x7fff, 1000, NULL));
   // signed number (IEEE 754 binary32: 1 bit sign, 8 bits exponent, 23 bits significand), little endian
-  add(new NumberDataType("EXP", 32, SIG|EXP, 0x7f800000, 0x00000000, 0xffffffff, 1));
+  add(new NumberDataType("EXP", 32, SIG|EXP, 0x7f800000, 0x00000000, 0xffffffff, 1, NULL));
   // signed number (IEEE 754 binary32: 1 bit sign, 8 bits exponent, 23 bits significand), big endian
-  add(new NumberDataType("EXR", 32, SIG|EXP|REV, 0x7f800000, 0x00000000, 0xffffffff, 1));
+  add(new NumberDataType("EXR", 32, SIG|EXP|REV, 0x7f800000, 0x00000000, 0xffffffff, 1, NULL));
   // unsigned integer, 0 - 65534, little endian
-  add(new NumberDataType("UIN", 16, 0, 0xffff, 0, 0xfffe, 1));
+  add(new NumberDataType("UIN", 16, 0, 0xffff, 0, 0xfffe, 1, NULL));
   // unsigned integer, 0 - 65534, big endian
-  add(new NumberDataType("UIR", 16, REV, 0xffff, 0, 0xfffe, 1));
+  add(new NumberDataType("UIR", 16, REV, 0xffff, 0, 0xfffe, 1, NULL));
   // signed integer, -32767 - +32767, little endian
-  add(new NumberDataType("SIN", 16, SIG, 0x8000, 0x8001, 0x7fff, 1));
+  add(new NumberDataType("SIN", 16, SIG, 0x8000, 0x8001, 0x7fff, 1, NULL));
   // signed integer, -32767 - +32767, big endian
-  add(new NumberDataType("SIR", 16, SIG|REV, 0x8000, 0x8001, 0x7fff, 1));
+  add(new NumberDataType("SIR", 16, SIG|REV, 0x8000, 0x8001, 0x7fff, 1, NULL));
   // unsigned 3 bytes int, 0 - 16777214, little endian
-  add(new NumberDataType("U3N", 24, 0, 0xffffff, 0, 0xfffffe, 1));
+  add(new NumberDataType("U3N", 24, 0, 0xffffff, 0, 0xfffffe, 1, NULL));
   // unsigned 3 bytes int, 0 - 16777214, big endian
-  add(new NumberDataType("U3R", 24, REV, 0xffffff, 0, 0xfffffe, 1));
+  add(new NumberDataType("U3R", 24, REV, 0xffffff, 0, 0xfffffe, 1, NULL));
   // signed 3 bytes int, -8388607 - +8388607, little endian
-  add(new NumberDataType("S3N", 24, SIG, 0x800000, 0x800001, 0xffffff, 1));
+  add(new NumberDataType("S3N", 24, SIG, 0x800000, 0x800001, 0xffffff, 1, NULL));
   // signed 3 bytes int, -8388607 - +8388607, big endian
-  add(new NumberDataType("S3R", 24, SIG|REV, 0x800000, 0x800001, 0xffffff, 1));
+  add(new NumberDataType("S3R", 24, SIG|REV, 0x800000, 0x800001, 0xffffff, 1, NULL));
   // unsigned integer, 0 - 4294967294, little endian
-  add(new NumberDataType("ULG", 32, 0, 0xffffffff, 0, 0xfffffffe, 1));
+  add(new NumberDataType("ULG", 32, 0, 0xffffffff, 0, 0xfffffffe, 1, NULL));
   // unsigned integer, 0 - 4294967294, big endian
-  add(new NumberDataType("ULR", 32, REV, 0xffffffff, 0, 0xfffffffe, 1));
+  add(new NumberDataType("ULR", 32, REV, 0xffffffff, 0, 0xfffffffe, 1, NULL));
   // signed integer, -2147483647 - +2147483647, little endian
-  add(new NumberDataType("SLG", 32, SIG, 0x80000000, 0x80000001, 0xffffffff, 1));
+  add(new NumberDataType("SLG", 32, SIG, 0x80000000, 0x80000001, 0xffffffff, 1, NULL));
   // signed integer, -2147483647 - +2147483647, big endian
-  add(new NumberDataType("SLR", 32, SIG|REV, 0x80000000, 0x80000001, 0xffffffff, 1));
+  add(new NumberDataType("SLR", 32, SIG|REV, 0x80000000, 0x80000001, 0xffffffff, 1, NULL));
   add(new NumberDataType("BI0", 7, ADJ|REQ, 0, 0, 1));  // bit 0 (up to 7 bits until bit 6)
   add(new NumberDataType("BI1", 7, ADJ|REQ, 0, 1, 1));  // bit 1 (up to 7 bits until bit 7)
   add(new NumberDataType("BI2", 6, ADJ|REQ, 0, 2, 1));  // bit 2 (up to 6 bits until bit 7)
@@ -1010,21 +999,20 @@ DataTypeList* DataTypeList::getInstance() {
 }
 
 void DataTypeList::clear() {
-  for (list<DataType*>::iterator it = m_cleanupTypes.begin(); it != m_cleanupTypes.end(); it++) {
-    delete *it;
+  for (auto& it : m_cleanupTypes) {
+    delete it;
   }
   m_cleanupTypes.clear();
   m_typesByIdLength.clear();
   m_typesById.clear();
 }
 
-result_t DataTypeList::add(DataType* dataType) {
+result_t DataTypeList::add(const DataType* dataType) {
   if (!dataType->isAdjustableLength()) {
     ostringstream str;
     size_t bitCount = dataType->getBitCount();
     str << dataType->getId() << LENGTH_SEPARATOR << static_cast<unsigned>(bitCount >= 8?bitCount/8:bitCount);
-    map<string, DataType*>::iterator it = m_typesByIdLength.find(str.str());
-    if (it != m_typesByIdLength.end()) {
+    if (m_typesByIdLength.find(str.str()) != m_typesByIdLength.end()) {
       return RESULT_ERR_DUPLICATE_NAME;  // duplicate key
     }
     m_typesByIdLength[str.str()] = dataType;
@@ -1040,20 +1028,23 @@ result_t DataTypeList::add(DataType* dataType) {
   return RESULT_OK;
 }
 
-DataType* DataTypeList::get(const string id, const size_t length) {
-  DataType* dataType = NULL;
+const DataType* DataTypeList::get(const string& id, size_t length) const {
   if (length > 0) {
     ostringstream str;
     str << id << LENGTH_SEPARATOR << static_cast<unsigned>(length);
-    dataType = m_typesByIdLength[str.str()];
-  }
-  if (!dataType) {
-    dataType = m_typesById[id];
-    if (dataType && length > 0 && !dataType->isAdjustableLength()) {
-      return NULL;
+    auto it = m_typesByIdLength.find(str.str());
+    if (it != m_typesByIdLength.end()) {
+      return it->second;
     }
   }
-  return dataType;
+  auto it = m_typesById.find(id);
+  if (it == m_typesById.end()) {
+    return NULL;
+  }
+  if (length > 0 && !it->second->isAdjustableLength()) {
+    return NULL;
+  }
+  return it->second;
 }
 
 }  // namespace ebusd

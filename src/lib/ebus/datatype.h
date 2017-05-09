@@ -94,11 +94,17 @@ typedef int OutputFormat;
 /** bit flag for @a OutputFormat: numeric format (keep numeric value of value=name pairs). */
 #define OF_NUMERIC 0x08
 
+/** bit flag for @a OutputFormat: value=name format for such pairs. */
+#define OF_VALUENAME 0x10
+
 /** bit flag for @a OutputFormat: JSON format. */
-#define OF_JSON 0x10
+#define OF_JSON 0x20
 
 /** bit flag for @a OutputFormat: short format (only name and value, no indentation). */
-#define OF_SHORT 0x20
+#define OF_SHORT 0x40
+
+/** bit flag for @a OutputFormat: include all attributes. */
+#define OF_ALL_ATTRS 0x80
 
 /** the message part in which a data field is stored. */
 enum PartType {
@@ -161,7 +167,7 @@ class DataType {
    * @param replacement the replacement value (fill-up value for @a StringDataType, no replacement if equal to
    * @a NumberDataType#minValue).
    */
-  DataType(const string id, const size_t bitCount, const uint16_t flags, const unsigned int replacement)
+  DataType(const string& id, size_t bitCount, uint16_t flags, unsigned int replacement)
     : m_id(id), m_bitCount(bitCount), m_flags(flags), m_replacement(replacement) {}
 
   /**
@@ -184,7 +190,7 @@ class DataType {
    * @param flag the flag to check (like #BCD).
    * @return whether the flag is set.
    */
-  bool hasFlag(const unsigned int flag) const { return (m_flags & flag) != 0; }
+  bool hasFlag(unsigned int flag) const { return (m_flags & flag) != 0; }
 
   /**
    * @return whether this type is ignored.
@@ -210,50 +216,47 @@ class DataType {
   /**
    * Dump the type identifier with the specified length and optionally the
    * divisor to the output.
-   * @param output the @a ostream to dump to.
    * @param length the number of symbols to read/write.
    * @param appendSeparatorDivisor whether to append a @a FIELD_SEPARATOR followed by the divisor (if available).
+   * @param output the @a ostream to dump to.
    * @return true when a non-default divisor was written to the output.
    */
-  virtual bool dump(ostream& output, const size_t length, const bool appendSeparatorDivisor = true) const;
+  virtual bool dump(size_t length, bool appendSeparatorDivisor, ostream* output) const;
 
   /**
    * Internal method for reading the numeric raw value from a @a SymbolString.
-   * @param input the @a SymbolString to read the binary value from.
    * @param offset the offset in the @a SymbolString.
    * @param length the number of symbols to read.
+   * @param input the @a SymbolString to read the binary value from.
    * @param value the variable in which to store the numeric raw value.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t readRawValue(SymbolString& input,
-    const size_t offset, const size_t length,
-    unsigned int& value) = 0;
+  virtual result_t readRawValue(size_t offset, size_t length, const SymbolString& input,
+      unsigned int* value) const = 0;
 
   /**
    * Internal method for reading the field from a @a SymbolString.
-   * @param input the @a SymbolString to read the binary value from.
    * @param offset the offset in the data of the @a SymbolString.
    * @param length the number of symbols to read.
-   * @param output the ostringstream to append the formatted value to.
+   * @param input the @a SymbolString to read the binary value from.
    * @param outputFormat the @a OutputFormat options to use.
+   * @param output the ostream to append the formatted value to.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t readSymbols(SymbolString& input,
-    const size_t offset, const size_t length,
-    ostringstream& output, OutputFormat outputFormat) = 0;
+  virtual result_t readSymbols(size_t offset, size_t length, const SymbolString& input,
+      OutputFormat outputFormat, ostream* output) const = 0;
 
   /**
    * Internal method for writing the field to a @a SymbolString.
-   * @param input the @a istringstream to parse the formatted value from.
    * @param offset the offset in the @a SymbolString.
    * @param length the number of symbols to write, or @a REMAIN_LEN.
+   * @param input the @a istringstream to parse the formatted value from.
    * @param output the @a SymbolString to write the binary value to.
    * @param usedLength the variable in which to store the used length in bytes, or NULL.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t writeSymbols(istringstream& input,
-    const size_t offset, const size_t length,
-    SymbolString& output, size_t* usedLength) = 0;
+  virtual result_t writeSymbols(size_t offset, size_t length, istringstream* input,
+      SymbolString* output, size_t* usedLength) const = 0;
 
 
  protected:
@@ -285,8 +288,8 @@ class StringDataType : public DataType {
    * @param replacement the replacement value (fill-up value).
    * @param isHex true for hex digits instead of characters.
    */
-  StringDataType(const string id, const size_t bitCount, const uint16_t flags,
-    const unsigned int replacement, bool isHex = false)
+  StringDataType(const string& id, size_t bitCount, uint16_t flags,
+    unsigned int replacement, bool isHex = false)
     : DataType(id, bitCount, flags, replacement), m_isHex(isHex) {}
 
   /**
@@ -295,19 +298,16 @@ class StringDataType : public DataType {
   virtual ~StringDataType() {}
 
   // @copydoc
-  result_t readRawValue(SymbolString& input,
-    const size_t offset, const size_t length,
-    unsigned int& value) override;
+  result_t readRawValue(size_t offset, size_t length, const SymbolString& input,
+      unsigned int* value) const override;
 
   // @copydoc
-  result_t readSymbols(SymbolString& input,
-    const size_t offset, const size_t length,
-    ostringstream& output, OutputFormat outputFormat) override;
+  result_t readSymbols(size_t offset, size_t length, const SymbolString& input,
+      OutputFormat outputFormat, ostream* output) const override;
 
   // @copydoc
-  result_t writeSymbols(istringstream& input,
-    const size_t offset, const size_t length,
-    SymbolString& output, size_t* usedLength) override;
+  result_t writeSymbols(size_t offset, size_t length, istringstream* input,
+      SymbolString* output, size_t* usedLength) const override;
 
 
  private:
@@ -331,8 +331,8 @@ class DateTimeDataType : public DataType {
    * @param hasTime true if time part is present.
    * @param resolution the the resolution in minutes for time types, or 1.
    */
-  DateTimeDataType(const string id, const size_t bitCount, const uint16_t flags, const unsigned int replacement,
-      const bool hasDate, const bool hasTime, const int16_t resolution)
+  DateTimeDataType(const string& id, size_t bitCount, uint16_t flags, unsigned int replacement,
+      bool hasDate, bool hasTime, int16_t resolution)
     : DataType(id, bitCount, flags, replacement), m_hasDate(hasDate), m_hasTime(hasTime),
       m_resolution(resolution == 0 ? 1 : resolution) {}
 
@@ -357,19 +357,16 @@ class DateTimeDataType : public DataType {
   int16_t getResolution() const { return m_resolution; }
 
   // @copydoc
-  result_t readRawValue(SymbolString& input,
-    const size_t offset, const size_t length,
-    unsigned int& value) override;
+  result_t readRawValue(size_t offset, size_t length, const SymbolString& input,
+      unsigned int* value) const override;
 
   // @copydoc
-  result_t readSymbols(SymbolString& input,
-    const size_t offset, const size_t length,
-    ostringstream& output, OutputFormat outputFormat) override;
+  result_t readSymbols(size_t offset, size_t length, const SymbolString& input,
+      OutputFormat outputFormat, ostream* output) const override;
 
   // @copydoc
-  result_t writeSymbols(istringstream& input,
-    const size_t offset, const size_t length,
-    SymbolString& output, size_t* usedLength) override;
+  result_t writeSymbols(const size_t offset, size_t length, istringstream* input,
+      SymbolString* output, size_t* usedLength) const override;
 
 
  private:
@@ -398,11 +395,13 @@ class NumberDataType : public DataType {
    * @param minValue the minimum raw value.
    * @param maxValue the maximum raw value.
    * @param divisor the divisor (negative for reciprocal).
+   * @param baseType the base @a NumberDataType for derived instances, or NULL.
    */
-  NumberDataType(const string id, const size_t bitCount, const uint16_t flags, const unsigned int replacement,
-      const unsigned int minValue, const unsigned int maxValue, const int divisor)
+  NumberDataType(const string& id, size_t bitCount, uint16_t flags, unsigned int replacement,
+      unsigned int minValue, unsigned int maxValue, int divisor,
+      const NumberDataType* baseType)
     : DataType(id, bitCount, flags|NUM, replacement), m_minValue(minValue), m_maxValue(maxValue), m_divisor(divisor),
-      m_precision(calcPrecision(divisor)), m_firstBit(0), m_baseType(NULL) {}
+      m_precision(calcPrecision(divisor)), m_firstBit(0), m_baseType(baseType) {}
 
   /**
    * Constructs a new instance for less than 8 bits.
@@ -412,11 +411,12 @@ class NumberDataType : public DataType {
    * @param replacement the replacement value (no replacement if zero).
    * @param firstBit the offset to the first bit.
    * @param divisor the divisor (negative for reciprocal).
+   * @param baseType the base @a NumberDataType for derived instances, or NULL.
    */
-  NumberDataType(const string id, const size_t bitCount, const uint16_t flags, const unsigned int replacement,
-      const int16_t firstBit, const int divisor)
+  NumberDataType(const string& id, size_t bitCount, uint16_t flags, unsigned int replacement,
+      int16_t firstBit, int divisor, const NumberDataType* baseType = NULL)
     : DataType(id, bitCount, flags|NUM, replacement), m_minValue(0), m_maxValue((1 << bitCount)-1), m_divisor(divisor),
-      m_precision(0), m_firstBit(firstBit), m_baseType(NULL) {}
+      m_precision(0), m_firstBit(firstBit), m_baseType(baseType) {}
 
   /**
    * Destructor.
@@ -429,10 +429,10 @@ class NumberDataType : public DataType {
    * @param divisor the divisor (negative for reciprocal).
    * @return the precision for formatting the value.
    */
-  static size_t calcPrecision(const int divisor);
+  static size_t calcPrecision(int divisor);
 
   // @copydoc
-  bool dump(ostream& output, const size_t length, const bool appendSeparatorDivisor = true) const override;
+  bool dump(size_t length, bool appendSeparatorDivisor, ostream* output) const override;
 
   /**
    * Derive a new @a NumberDataType from this.
@@ -444,7 +444,7 @@ class NumberDataType : public DataType {
    * not necessary.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t derive(int divisor, size_t bitCount, NumberDataType* &derived);
+  virtual result_t derive(int divisor, size_t bitCount, const NumberDataType** derived) const;
 
   /**
    * @return the minimum raw value.
@@ -472,14 +472,12 @@ class NumberDataType : public DataType {
   int16_t getFirstBit() const { return m_firstBit; }
 
   // @copydoc
-  result_t readRawValue(SymbolString& input,
-    const size_t offset, const size_t length,
-    unsigned int& value) override;
+  result_t readRawValue(size_t offset, size_t length, const SymbolString& input,
+      unsigned int* value) const override;
 
   // @copydoc
-  result_t readSymbols(SymbolString& input,
-    const size_t offset, const size_t length,
-    ostringstream& output, OutputFormat outputFormat) override;
+  result_t readSymbols(size_t offset, size_t length, const SymbolString& input,
+      const OutputFormat outputFormat, ostream* output) const override;
 
   /**
    * Internal method for writing the numeric raw value to a @a SymbolString.
@@ -491,14 +489,12 @@ class NumberDataType : public DataType {
    * or NULL.
    * @return @a RESULT_OK on success, or an error code.
    */
-  result_t writeRawValue(unsigned int value,
-    const size_t offset, const size_t length,
-    SymbolString& output, size_t* usedLength = NULL);
+  result_t writeRawValue(unsigned int value, size_t offset, size_t length,
+      SymbolString* output, size_t* usedLength) const;
 
   // @copydoc
-  result_t writeSymbols(istringstream& input,
-    const size_t offset, const size_t length,
-    SymbolString& output, size_t* usedLength) override;
+  result_t writeSymbols(size_t offset, size_t length, istringstream* input,
+      SymbolString* output, size_t* usedLength) const override;
 
 
  private:
@@ -518,7 +514,7 @@ class NumberDataType : public DataType {
   const int16_t m_firstBit;
 
   /** the base @a NumberDataType for derived instances. */
-  NumberDataType* m_baseType;
+  const NumberDataType* m_baseType;
 };
 
 
@@ -556,13 +552,13 @@ class DataTypeList {
    * @return @a RESULT_OK on success, or an error code.
    * Note: the caller may not free the added instance on success.
    */
-  result_t add(DataType* dataType);
+  result_t add(const DataType* dataType);
 
   /**
    * Adds a @a DataType instance for later cleanup.
    * @param dataType the @a DataType instance to add.
    */
-  void addCleanup(DataType* dataType) { m_cleanupTypes.push_back(dataType); }
+  void addCleanup(const DataType* dataType) { m_cleanupTypes.push_back(dataType); }
 
   /**
    * Gets the @a DataType instance with the specified ID.
@@ -571,30 +567,30 @@ class DataTypeList {
    * @return the @a DataType instance, or NULL if not available.
    * Note: the caller may not free the instance.
    */
-  DataType* get(const string id, const size_t length = 0);
+  const DataType* get(const string& id, size_t length = 0) const;
 
   /**
    * Returns an iterator pointing to the first ID/@a DataType pair.
    * @return an iterator pointing to the first ID/@a DataType pair.
    */
-  map<string, DataType*>::const_iterator begin() const { return m_typesById.begin(); }
+  map<string, const DataType*>::const_iterator begin() const { return m_typesById.begin(); }
 
   /**
    * Returns an iterator pointing one past the last ID/@a DataType pair.
    * @return an iterator pointing one past the last ID/@a DataType pair.
    */
-  map<string, DataType*>::const_iterator end() const { return m_typesById.end(); }
+  map<string, const DataType*>::const_iterator end() const { return m_typesById.end(); }
 
  private:
   /** the known @a DataType instances by ID only. */
-  map<string, DataType*> m_typesById;
+  map<string, const DataType*> m_typesById;
 
   /** the known @a DataType instances by ID and length (i.e. "ID:BITS").
    * Note: adjustable length types are stored by ID only. */
-  map<string, DataType*> m_typesByIdLength;
+  map<string, const DataType*> m_typesByIdLength;
 
   /** the @a DataType instances to cleanup. */
-  list<DataType*> m_cleanupTypes;
+  list<const DataType*> m_cleanupTypes;
 
   /** the singleton instance. */
   static DataTypeList s_instance;

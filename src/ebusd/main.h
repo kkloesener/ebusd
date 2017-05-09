@@ -45,9 +45,11 @@ struct options {
   /** the initial address to scan for scanconfig
    * (@a ESC=none, 0xfe=broadcast ident, @a SYN=full scan, else: single slave address). */
   symbol_t initialScan;
+  const char* preferLanguage;  //!< preferred language in configuration files
   bool checkConfig;  //!< check CSV config files, then stop
   bool dumpConfig;   //!< dump CSV config files, then stop
   unsigned int pollInterval;  //!< poll interval in seconds, 0 to disable [5]
+  bool injectMessages;  //!< inject remaining arguments as already seen messages
 
   symbol_t address;  //!< own bus address [31]
   bool answer;  //!< answer to requests from other masters
@@ -73,7 +75,7 @@ struct options {
   LogLevel logLevel;  //!< log level [notice]
   bool multiLog;  //!< multiple log levels adjusted with --log=...
 
-  bool logRaw;  //!< raw log each received/sent byte on the bus
+  unsigned int logRaw;  //!< raw log each received/sent byte on the bus (1=messages, 2=bytes)
   const char* logRawFile;  //!< name of raw log file [/var/log/ebusd.log]
   unsigned int logRawSize;  //!< maximum size of raw log file in kB [100]
 
@@ -87,7 +89,7 @@ struct options {
  * @param filename the full name of the configuration file.
  * @return the @a DataFieldTemplates.
  */
-DataFieldTemplates* getTemplates(const string filename);
+DataFieldTemplates* getTemplates(const string& filename);
 
 /**
  * Load the message definitions from configuration files.
@@ -104,11 +106,18 @@ result_t loadConfigFiles(MessageMap* messages, bool verbose = false, bool denyRe
  * @param address the address of the scan participant
  * (either master for broadcast master data or slave for read slave data).
  * @param data the scan @a SlaveSymbolString for which to load the configuration file.
- * @param relativeFile the string in which the name of the configuration file is stored on success.
  * @param verbose whether to verbosely log problems.
+ * @param relativeFile the string in which the name of the configuration file is stored on success.
  * @return the result code.
  */
-result_t loadScanConfigFile(MessageMap* messages, symbol_t address, string& relativeFile, bool verbose = false);
+result_t loadScanConfigFile(MessageMap* messages, symbol_t address, bool verbose, string* relativeFile);
+
+/**
+ * Helper method for executing all loaded and resolvable instructions.
+ * @param messages the @a MessageMap instance.
+ * @param verbose whether to verbosely log all problems.
+ */
+void executeInstructions(MessageMap* messages, bool verbose = false);
 
 }  // namespace ebusd
 

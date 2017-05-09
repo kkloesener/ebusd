@@ -35,6 +35,40 @@ int Connection::m_ids = 0;
 #define POLLRDHUP 0
 #endif
 
+bool NetMessage::add(const char* request) {
+  if (request && request[0]) {
+    string add = request;
+    add.erase(remove(add.begin(), add.end(), '\r'), add.end());
+    m_request.append(add);
+  }
+  size_t pos = m_request.find(m_isHttp ? "\n\n" : "\n");
+  if (pos != string::npos) {
+    if (m_isHttp) {
+      pos = m_request.find("\n");
+      m_request.resize(pos);  // reduce to first line
+      // typical first line: GET /ehp/outsidetemp HTTP/1.1
+      pos = m_request.rfind(" HTTP/");
+      if (pos != string::npos) {
+        m_request.resize(pos);  // remove "HTTP/x.x" suffix
+      }
+      pos = 0;
+      while ((pos=m_request.find('%', pos)) != string::npos && pos+2 <= m_request.length()) {
+        unsigned int value1, value2;
+        if (sscanf("%1x%1x", m_request.c_str()+pos+1, &value1, &value2) < 2) {
+          break;
+        }
+        m_request[pos] = static_cast<char>(((value1&0x0f) << 4) | (value2&0x0f));
+        m_request.erase(pos+1, 2);
+      }
+    } else if (pos+1 == m_request.length()) {
+      m_request.resize(pos);  // reduce to complete lines
+    }
+    return true;
+  }
+  return m_request.length() == 0 && m_listening;
+}
+
+
 void Connection::run() {
   int ret;
   struct timespec tdiff;
@@ -46,7 +80,7 @@ void Connection::run() {
   int sockFD = m_socket->getFD();
 
 #ifdef HAVE_PPOLL
-  int nfds = 2;
+  nfds_t nfds = 2;
   struct pollfd fds[nfds];
 
   memset(fds, 0, sizeof(fds));
@@ -200,7 +234,7 @@ void Network::run() {
   tdiff.tv_nsec = 0;
 #ifdef HAVE_PPOLL
   int socketCount = m_httpServer ? 2 : 1;
-  int nfds = 1+socketCount;
+  nfds_t nfds = 1+socketCount;
   struct pollfd fds[nfds];
 
   memset(fds, 0, sizeof(fds));
@@ -291,13 +325,15 @@ void Network::run() {
 }
 
 void Network::cleanConnections() {
-  list<Connection*>::iterator c_it;
-  for (c_it = m_connections.begin(); c_it != m_connections.end(); c_it++) {
-    if (!(*c_it)->isRunning()) {
-      Connection* connection = *c_it;
-      c_it = m_connections.erase(c_it);
+  auto it = m_connections.begin();
+  while (it != m_connections.end()) {
+    if (!(*it)->isRunning()) {
+      Connection* connection = *it;
+      it = m_connections.erase(it);
       delete connection;
       logDebug(lf_network, "dead connection removed - %d", m_connections.size());
+    } else {
+      it++;
     }
   }
 }

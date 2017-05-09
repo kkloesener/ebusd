@@ -46,7 +46,7 @@ class UserList : public UserInfo, public MappedFileReader {
    * Constructor.
    * @param defaultLevels the default access levels.
    */
-  explicit UserList(const string defaultLevels) : MappedFileReader::MappedFileReader(false) {
+  explicit UserList(const string& defaultLevels) : MappedFileReader::MappedFileReader(false) {
     if (!defaultLevels.empty()) {
       string levels = defaultLevels;
       transform(levels.begin(), levels.end(), levels.begin(), [](unsigned char c) {
@@ -62,24 +62,28 @@ class UserList : public UserInfo, public MappedFileReader {
   virtual ~UserList() {}
 
   // @copydoc
-  result_t getFieldMap(vector<string>& row, string& errorDescription) override;
+  result_t getFieldMap(const string& preferLanguage, vector<string>* row, string* errorDescription) const override;
 
   // @copydoc
-  result_t addFromFile(map<string, string>& row, vector< map<string, string> >& subRows,
-      string& errorDescription, const string filename, unsigned int lineNo) override;
+  result_t addFromFile(const string& filename, unsigned int lineNo, map<string, string>* row,
+      vector< map<string, string> >* subRows, string* errorDescription) override;
 
   // @copydoc
-  bool hasUser(const string user) override {
+  bool hasUser(const string& user) const override {
     return m_userLevels.find(user) != m_userLevels.end();
   }
 
   // @copydoc
-  bool checkSecret(const string user, const string secret) override {
-    return m_userSecrets.find(user) != m_userSecrets.end() && m_userSecrets[user] == secret;
+  bool checkSecret(const string& user, const string& secret) const override {
+    auto it = m_userSecrets.find(user);
+    return it != m_userSecrets.end() && it->second == secret;
   }
 
   // @copydoc
-  string getLevels(const string user) override { return m_userLevels[user]; }
+  string getLevels(const string& user) const override {
+    auto it = m_userLevels.find(user);
+    return it == m_userLevels.end() ? "" : it->second;
+  }
 
  private:
   /** the secret string by user name. */
@@ -101,12 +105,17 @@ class MainLoop : public Thread, DeviceListener {
    * @param device the @a Device instance.
    * @param messages the @a MessageMap instance.
    */
-  MainLoop(const struct options opt, Device *device, MessageMap* messages);
+  MainLoop(const struct options& opt, Device *device, MessageMap* messages);
 
   /**
    * Destructor.
    */
   ~MainLoop();
+
+  /**
+   * Shutdown the main loop.
+   */
+  void shutdown() { m_shutdown = true; }
 
   /**
    * Get the @a BusHandler instance.
@@ -121,7 +130,7 @@ class MainLoop : public Thread, DeviceListener {
   void addMessage(NetMessage* message) { m_netQueue.push(message); }
 
   // @copydoc
-  void notifyDeviceData(const symbol_t symbol, bool received) override;
+  void notifyDeviceData(symbol_t symbol, bool received) override;
 
 
  protected:
@@ -140,26 +149,26 @@ class MainLoop : public Thread, DeviceListener {
    * @param reload set to true when the configuration files were reloaded.
    * @return result string to send back to the client.
    */
-  string decodeMessage(const string& data, const bool isHttp, bool& connected, bool& listening,
-      string& user, bool& reload);
+  string decodeMessage(const string& data, bool isHttp, bool* connected, bool* listening,
+      string* user, bool* reload);
 
   /**
    * Parse the hex master message from the remaining arguments.
    * @param args the arguments passed to the command.
    * @param argPos the index of the first argument to parse.
-   * @param master the @a MasterSymbolString to write the data to.
    * @param srcAddress the source address to set, or @a SYN for the own master address.
+   * @param master the @a MasterSymbolString to write the data to.
    * @return the result from parsing the arguments.
    */
-  result_t parseHexMaster(vector<string> &args, size_t argPos, MasterSymbolString& master,
-      symbol_t srcAddress = SYN);
+  result_t parseHexMaster(const vector<string>& args, size_t argPos, symbol_t srcAddress,
+      MasterSymbolString* master);
 
   /**
    * Get the access levels associated with the specified user name.
    * @param user the user name, or empty for default levels.
    * @return the access levels separated by semicolon.
    */
-  string getUserLevels(const string user) { return m_userList.getLevels(user); }
+  string getUserLevels(const string& user) { return m_userList.getLevels(user); }
 
   /**
    * Execute the auth command.
@@ -167,7 +176,7 @@ class MainLoop : public Thread, DeviceListener {
    * @param user the current user name to set to the new user name on success.
    * @return the result string.
    */
-  string executeAuth(vector<string> &args, string &user);
+  string executeAuth(const vector<string>& args, string *user);
 
   /**
    * Execute the read command.
@@ -175,7 +184,7 @@ class MainLoop : public Thread, DeviceListener {
    * @param levels the current user's access levels.
    * @return the result string.
    */
-  string executeRead(vector<string> &args, const string levels);
+  string executeRead(const vector<string>& args, const string& levels);
 
   /**
    * Execute the write command.
@@ -183,14 +192,14 @@ class MainLoop : public Thread, DeviceListener {
    * @param levels the current user's access levels.
    * @return the result string.
    */
-  string executeWrite(vector<string> &args, const string levels);
+  string executeWrite(const vector<string>& args, const string levels);
 
   /**
    * Execute the hex command.
    * @param args the arguments passed to the command (starting with the command itself), or empty for help.
    * @return the result string.
    */
-  string executeHex(vector<string> &args);
+  string executeHex(const vector<string>& args);
 
   /**
    * Execute the find command.
@@ -198,7 +207,7 @@ class MainLoop : public Thread, DeviceListener {
    * @param levels the current user's access levels.
    * @return the result string.
    */
-  string executeFind(vector<string> &args, string levels);
+  string executeFind(const vector<string>& args, const string& levels);
 
   /**
    * Execute the listen command.
@@ -206,21 +215,21 @@ class MainLoop : public Thread, DeviceListener {
    * @param listening set to true when the client is in listening mode.
    * @return the result string.
    */
-  string executeListen(vector<string> &args, bool& listening);
+  string executeListen(const vector<string>& args, bool* listening);
 
   /**
    * Execute the state command.
    * @param args the arguments passed to the command (starting with the command itself), or empty for help.
    * @return the result string.
    */
-  string executeState(vector<string> &args);
+  string executeState(const vector<string>& args);
 
   /**
    * Execute the grab command.
    * @param args the arguments passed to the command (starting with the command itself), or empty for help.
    * @return the result string.
    */
-  string executeGrab(vector<string> &args);
+  string executeGrab(const vector<string>& args);
 
   /**
    * Execute the scan command.
@@ -228,35 +237,35 @@ class MainLoop : public Thread, DeviceListener {
    * @param levels the current user's access levels.
    * @return the result string.
    */
-  string executeScan(vector<string> &args, const string levels);
+  string executeScan(const vector<string>& args, const string levels);
 
   /**
    * Execute the log command.
    * @param args the arguments passed to the command (starting with the command itself), or empty for help.
    * @return the result string.
    */
-  string executeLog(vector<string> &args);
+  string executeLog(const vector<string>& args);
 
   /**
    * Execute the raw command.
    * @param args the arguments passed to the command (starting with the command itself), or empty for help.
    * @return the result string.
    */
-  string executeRaw(vector<string> &args);
+  string executeRaw(const vector<string>& args);
 
   /**
    * Execute the dump command.
    * @param args the arguments passed to the command (starting with the command itself), or empty for help.
    * @return the result string.
    */
-  string executeDump(vector<string> &args);
+  string executeDump(const vector<string>& args);
 
   /**
    * Execute the reload command.
    * @param args the arguments passed to the command (starting with the command itself), or empty for help.
    * @return the result string.
    */
-  string executeReload(vector<string> &args);
+  string executeReload(const vector<string>& args);
 
   /**
    * Execute the info command.
@@ -264,7 +273,7 @@ class MainLoop : public Thread, DeviceListener {
    * @param user the current user name.
    * @return the result string.
    */
-  string executeInfo(vector<string> &args, const string user);
+  string executeInfo(const vector<string>& args, const string& user);
 
   /**
    * Execute the quit command.
@@ -272,7 +281,7 @@ class MainLoop : public Thread, DeviceListener {
    * @param connected set to false when the client connection shall be closed.
    * @return the result string.
    */
-  string executeQuit(vector<string> &args, bool& connected);
+  string executeQuit(const vector<string>& args, bool *connected);
 
   /**
    * Execute the help command.
@@ -286,16 +295,16 @@ class MainLoop : public Thread, DeviceListener {
    * @param connected set to false when the client connection shall be closed.
    * @return the result string.
    */
-  string executeGet(vector<string> &args, bool& connected);
+  string executeGet(const vector<string>& args, bool* connected);
 
   /**
    * Format the HTTP answer to the result string.
    * @param ret the result code of handling the request.
-   * @param result the @a ostringstream containing the successful result.
    * @param type the content type.
+   * @param result the @a ostringstream containing the successful result.
    * @return the result string.
    */
-  string formatHttpResult(result_t ret, ostringstream& result, int type);
+  string formatHttpResult(result_t ret, int type, ostringstream &result);
 
   /** the @a Device instance. */
   Device* m_device;
@@ -308,6 +317,18 @@ class MainLoop : public Thread, DeviceListener {
 
   /** whether raw logging to @p logNotice is enabled (only relevant if m_logRawFile is NULL). */
   bool m_logRawEnabled;
+
+  /** whether to log raw bytes instead of messages with @a m_logRawEnabled. */
+  bool m_logRawBytes;
+
+  /** the buffer for building log raw message. */
+  ostringstream m_logRawBuffer;
+
+  /** true when the last byte in @a m_logRawBuffer was receive, false if it was sent. */
+  bool m_logRawLastReceived;
+
+  /** the last sent/received symbol.*/
+  symbol_t m_logRawLastSymbol;
 
   /** the @a RotateFile for dumping received data, or NULL. */
   RotateFile* m_dumpFile;
@@ -328,8 +349,14 @@ class MainLoop : public Thread, DeviceListener {
    * (@a ESC=none, 0xfe=broadcast ident, @a SYN=full scan, else: single slave address). */
   const symbol_t m_initialScan;
 
+  /** true when the poll interval is non zero. */
+  const bool m_polling;
+
   /** whether to enable the hex command. */
   const bool m_enableHex;
+
+  /** set to true to shutdown. */
+  bool m_shutdown;
 
   /** the created @a BusHandler instance. */
   BusHandler* m_busHandler;

@@ -68,47 +68,11 @@ class SimpleCondition;
 class CombinedCondition;
 class MessageMap;
 
-/** the field ID in @a Message::dump() for the message type. */
-#define MESSAGEFIELD_TYPE (DATAFIELD_RANGE_MAX+1)
-
-/** the field ID in @a Message::dump() for the circuit name. */
-#define MESSAGEFIELD_CIRCUIT (MESSAGEFIELD_TYPE+1)
-
-/** the field ID in @a Message::dump() for the access level. */
-#define MESSAGEFIELD_LEVEL (MESSAGEFIELD_CIRCUIT+1)
-
-/** the field ID in @a Message::dump() for the message name. */
-#define MESSAGEFIELD_NAME (MESSAGEFIELD_LEVEL+1)
-
-/** the field ID in @a Message::dump() for the message comment. */
-#define MESSAGEFIELD_COMMENT (MESSAGEFIELD_NAME+1)
-
-/** the field ID in @a Message::dump() for the source address QQ. */
-#define MESSAGEFIELD_QQ (MESSAGEFIELD_COMMENT+1)
-
-/** the field ID in @a Message::dump() for the destination address QQ. */
-#define MESSAGEFIELD_ZZ (MESSAGEFIELD_QQ+1)
-
-/** the field ID in @a Message::dump() for the PBSB bytes. */
-#define MESSAGEFIELD_PBSB (MESSAGEFIELD_ZZ+1)
-
-/** the field ID in @a Message::dump() for the ID field (after the PBSB bytes). */
-#define MESSAGEFIELD_ID (MESSAGEFIELD_PBSB+1)
-
-/** the field ID in @a Message::dump() for the data field(s). */
-#define MESSAGEFIELD_DATAFIELDS (MESSAGEFIELD_ID+1)
-
-/** the marker field ID for the minimum field ID. */
-#define MESSAGEFIELD_RANGE_MIN MESSAGEFIELD_TYPE
-
-/** the marker field ID for the maximum field ID. */
-#define MESSAGEFIELD_RANGE_MAX MESSAGEFIELD_DATAFIELDS
-
 
 /**
  * Defines parameters of a message sent or received on the bus.
  */
-class Message {
+class Message : public AttributedItem {
   friend class MessageMap;
  public:
   /**
@@ -119,7 +83,7 @@ class Message {
    * @param isWrite whether this is a write message.
    * @param isPassive true if message can only be initiated by a participant other than us,
    * false if message can be initiated by any participant.
-   * @param comment the comment.
+   * @param attributes the additional named attributes.
    * @param srcAddress the source address, or @a SYN for any (only relevant if passive).
    * @param dstAddress the destination address, or @a SYN for any (set later).
    * @param id the primary, secondary, and optional further ID bytes.
@@ -128,12 +92,12 @@ class Message {
    * @param pollPriority the priority for polling, or 0 for no polling at all.
    * @param condition the @a Condition for this message, or NULL.
    */
-  Message(const string circuit, const string level, const string name,
-      const bool isWrite, const bool isPassive, const string comment,
-      const symbol_t srcAddress, const symbol_t dstAddress,
-      const vector<symbol_t> id,
-      DataField* data, const bool deleteData,
-      const size_t pollPriority = 0,
+  Message(const string& circuit, const string& level, const string& name,
+      bool isWrite, bool isPassive, const map<string, string>& attributes,
+      symbol_t srcAddress, symbol_t dstAddress,
+      const vector<symbol_t>& id,
+      const DataField* data, bool deleteData,
+      size_t pollPriority = 0,
       Condition* condition = NULL);
 
 
@@ -149,9 +113,9 @@ class Message {
    * @param data the @a DataField for encoding/decoding the message.
    * @param deleteData whether to delete the @a DataField during destruction.
    */
-  Message(const string circuit, const string level, const string name,
-      const symbol_t pb, const symbol_t sb,
-      const bool broadcast, DataField* data, const bool deleteData);
+  Message(const string& circuit, const string& level, const string& name,
+      symbol_t pb, symbol_t sb,
+      bool broadcast, const DataField* data, bool deleteData);
 
 
  public:
@@ -170,9 +134,8 @@ class Message {
    * @param dstAddress the destination address, or @a SYN for any (set later).
    * @return the key for the ID.
    */
-  static uint64_t createKey(const vector<symbol_t> id,
-    const bool isWrite, const bool isPassive,
-    const symbol_t srcAddress, const symbol_t dstAddress);
+  static uint64_t createKey(const vector<symbol_t>& id, bool isWrite, bool isPassive, symbol_t srcAddress,
+      symbol_t dstAddress);
 
   /**
    * Calculate the key for the @a MasterSymbolString.
@@ -181,8 +144,16 @@ class Message {
    * @param anyDestination @p true to use the special @a SYN as destination address in the key.
    * @return the key for the ID, or -1LL if the data is invalid.
    */
-  static uint64_t createKey(MasterSymbolString& master,
-    size_t maxIdLength, bool anyDestination = false);
+  static uint64_t createKey(const MasterSymbolString& master, size_t maxIdLength, bool anyDestination = false);
+
+  /**
+   * Calculate the key for a scan message.
+   * @param pb the primary ID byte.
+   * @param sb the secondary ID byte.
+   * @param broadcast true for broadcast scan message, false for scan message to be sent to a slave address.
+   * @return the key for the scan message.
+   */
+  static uint64_t createKey(symbol_t pb, symbol_t sb, bool broadcast);
 
   /**
    * Get the length field from the key.
@@ -197,26 +168,29 @@ class Message {
    * @param id the vector to which to add the parsed values.
    * @return @a RESULT_OK on success, or an error code.
    */
-  static result_t parseId(string input, vector<symbol_t>& id);
+  static result_t parseId(const string& input, vector<symbol_t>* id);
 
   /**
    * Factory method for creating new instances.
-   * @param row the mapped message definition row.
-   * @param subRows the mapped field definition rows.
-   * @param rowDefaults the mapped message definition defaults.
-   * @param subRowDefaults the mapped field definition defaults.
-   * @param errorDescription a string in which to store the error description in case of error.
-   * @param condition the @a Condition instance for the message, or NULL.
    * @param filename the name of the file being read.
    * @param templates the @a DataFieldTemplates to be referenced by name, or NULL.
+   * @param rowDefaults the mapped message definition defaults.
+   * @param subRowDefaults the mapped field definition defaults.
+   * @param typeStr the single type of message to create.
+   * @param condition the @a Condition instance for the message, or NULL.
+   * @param row the mapped message definition row (may be modified).
+   * @param subRows the mapped field definition rows (may be modified).
+   * @param errorDescription a string in which to store the error description in case of error.
    * @param messages the @a vector to which to add created instances.
    * @return @a RESULT_OK on success, or an error code.
    * Note: the caller needs to free the created instances.
    */
-  static result_t create(map<string, string> row, vector< map<string, string> > subRows,
-      map<string, map<string, string> >& rowDefaults, map<string, vector< map<string, string> > >& subRowDefaults,
-      string& errorDescription, Condition* condition, const string filename, DataFieldTemplates* templates,
-      vector<Message*>& messages);
+  static result_t create(const string& filename, const DataFieldTemplates* templates,
+      const map<string, map<string, string> >& rowDefaults,
+      const map<string, vector< map<string, string> > >& subRowDefaults,
+      const string& typeStr, Condition* condition,
+      map<string, string>* row, vector< map<string, string> >* subRows,
+      string* errorDescription, vector<Message*>* messages);
 
   /**
    * Create a new scan @a Message instance.
@@ -226,13 +200,13 @@ class Message {
   static Message* createScanMessage(bool broadcast = false);
 
   /**
-   * Extract the known field IDs from the input string.
+   * Extract the known field names from the input string.
    * @param str the input string with the field names separated by @a FIELD_SEPARATOR.
-   * @param fields the vector to update with the extracted field IDs with.
    * @param checkAbbreviated true to also check for abbreviated field names.
+   * @param fields the vector to update with the extracted normalized field names with.
    * @return true when all fields are valid.
    */
-  static bool extractFieldIds(string str, vector<size_t>& fields, bool checkAbbreviated = true);
+  static bool extractFieldNames(const string& str, bool checkAbbreviated, vector<string>* fields);
 
   /**
    * Set that this is a special scanning @a Message instance.
@@ -243,7 +217,7 @@ class Message {
    * Return whether this is a special scanning @a Message instance.
    * @return whether this is a special scanning @a Message instance.
    */
-  bool isScanMessage() { return m_isScanMessage; }
+  bool isScanMessage() const { return m_isScanMessage; }
 
   /**
    * Derive a new @a Message from this message.
@@ -252,8 +226,7 @@ class Message {
    * @param circuit the new circuit name, or empty to use the current circuit name.
    * @return the derived @a Message instance.
    */
-  virtual Message* derive(const symbol_t dstAddress, const symbol_t srcAddress = SYN,
-      const string circuit = "");
+  virtual Message* derive(symbol_t dstAddress, symbol_t srcAddress, const string& circuit) const;
 
   /**
    * Derive a new @a Message from this message.
@@ -261,7 +234,7 @@ class Message {
    * @param extendCircuit whether to extend the current circuit name with a dot and the new destination address in hex.
    * @return the derived @a ScanMessage instance.
    */
-  Message* derive(const symbol_t dstAddress, const bool extendCircuit);
+  Message* derive(symbol_t dstAddress, bool extendCircuit) const;
 
   /**
    * Get the optional circuit name.
@@ -282,7 +255,7 @@ class Message {
    * level to check.
    * @return true when access is granted.
    */
-  bool hasLevel(const string levels, bool includeEmpty = true) {
+  bool hasLevel(const string& levels, bool includeEmpty = true) const {
     return m_level.empty() ? (includeEmpty || levels.empty()) : checkLevel(m_level, levels);
   }
 
@@ -292,13 +265,7 @@ class Message {
    * @param checkLevels the access levels to check against, separated by semicolon.
    * @return whether the access level matches.
    */
-  static bool checkLevel(const string level, const string checkLevels);
-
-  /**
-   * Get the message name (unique within the same circuit and type).
-   * @return the message name (unique within the same circuit and type).
-   */
-  string getName() const { return m_name; }
+  static bool checkLevel(const string& level, const string& checkLevels);
 
   /**
    * Get the specified field name.
@@ -319,12 +286,6 @@ class Message {
    * false if message can be initiated by any participant.
    */
   bool isPassive() const { return m_isPassive; }
-
-  /**
-   * Get the comment.
-   * @return the comment.
-   */
-  string getComment() const { return m_comment; }
 
   /**
    * Get the source address.
@@ -361,7 +322,7 @@ class Message {
    * @param id the ID bytes to check against.
    * @return true if the full command ID starts with the given value.
    */
-  bool checkIdPrefix(vector<symbol_t>& id);
+  bool checkIdPrefix(const vector<symbol_t>& id) const;
 
   /**
    * Check the ID against the master @a SymbolString data.
@@ -369,27 +330,27 @@ class Message {
    * @param index the variable in which to store the message part index, or NULL to ignore.
    * @return true if the ID matches, false otherwise.
    */
-  virtual bool checkId(MasterSymbolString& master, size_t* index = NULL);
+  virtual bool checkId(const MasterSymbolString& master, size_t* index) const;
 
   /**
    * Check the ID against the other @a Message.
    * @param other the other @a Message to check against.
    * @return true if the ID matches, false otherwise.
    */
-  virtual bool checkId(Message& other);
+  virtual bool checkId(const Message& other) const;
 
   /**
    * Return the key for storing in @a MessageMap.
    * @return the key for storing in @a MessageMap.
    */
-  uint64_t getKey() { return m_key; }
+  uint64_t getKey() const { return m_key; }
 
   /**
    * Return the derived key for storing in @a MessageMap.
    * @param dstAddress the destination address for the derivation.
    * @return the derived key for storing in @a MessageMap.
    */
-  uint64_t getDerivedKey(const symbol_t dstAddress);
+  uint64_t getDerivedKey(symbol_t dstAddress) const;
 
   /**
    * Get the polling priority, or 0 for no polling at all.
@@ -402,7 +363,7 @@ class Message {
    * @param priority the polling priority, or 0 for no polling at all.
    * @return true when the priority was changed and polling was not enabled before, false otherwise.
    */
-  bool setPollPriority(size_t priority);
+  bool setPollPriority(const size_t priority);
 
   /**
    * Set the poll priority suitable for resolving a @a Condition.
@@ -427,39 +388,37 @@ class Message {
    * @param numeric true for a numeric field, false for a string field.
    * @return true if the field is available.
    */
-  bool hasField(const char* fieldName, bool numeric = true);
+  bool hasField(const char* fieldName, bool numeric = true) const;
 
   /**
    * @return the number of parts this message is composed of.
    */
-  virtual size_t getCount() { return 1; }
+  virtual size_t getCount() const { return 1; }
 
   /**
    * Prepare the master @a SymbolString for sending a query or command to the bus.
-   * @param srcAddress the source address to set.
-   * @param master the @a MasterSymbolString for writing symbols to.
-   * @param input the @a istringstream to parse the formatted value(s) from.
-   * @param separator the separator character between multiple fields.
-   * @param dstAddress the destination address to set, or @a SYN to keep the address defined during construction.
    * @param index the index of the part to prepare.
+   * @param srcAddress the source address to set.
+   * @param dstAddress the destination address to set, or @a SYN to keep the address defined during construction.
+   * @param separator the separator character between multiple fields (e.g. @a UI_FIELD_SEPARATOR).
+   * @param input the @a istringstream to parse the formatted value(s) from.
+   * @param master the @a MasterSymbolString for writing symbols to.
    * @return @a RESULT_OK on success, or an error code.
    */
-  result_t prepareMaster(const symbol_t srcAddress, MasterSymbolString& master,
-      istringstream& input, char separator = UI_FIELD_SEPARATOR,
-      const symbol_t dstAddress = SYN, size_t index = 0);
+  result_t prepareMaster(size_t index, symbol_t srcAddress, symbol_t dstAddress,
+      char separator, istringstream* input, MasterSymbolString* master);
 
 
  protected:
   /**
    * Prepare a part of the master data @a SymbolString for sending (everything including NN).
-   * @param master the @a MasterSymbolString for writing symbols to.
-   * @param input the @a istringstream to parse the formatted value(s) from.
-   * @param separator the separator character between multiple fields.
    * @param index the index of the part to prepare.
+   * @param separator the separator character between multiple fields.
+   * @param input the @a istringstream to parse the formatted value(s) from.
+   * @param master the @a MasterSymbolString for writing symbols to.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t prepareMasterPart(MasterSymbolString& master, istringstream& input, char separator,
-      size_t index);
+  virtual result_t prepareMasterPart(size_t index, char separator, istringstream* input, MasterSymbolString* master);
 
 
  public:
@@ -469,7 +428,7 @@ class Message {
    * @param slave the @a SlaveSymbolString for writing symbols to.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t prepareSlave(istringstream& input, SlaveSymbolString& slave);
+  virtual result_t prepareSlave(istringstream* input, SlaveSymbolString* slave);
 
   /**
    * Store the last seen master and slave data.
@@ -477,129 +436,125 @@ class Message {
    * @param slave the last seen @a SlaveSymbolString.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t storeLastData(MasterSymbolString& master, SlaveSymbolString& slave);
+  virtual result_t storeLastData(const MasterSymbolString& master, const SlaveSymbolString& slave);
 
   /**
    * Store last seen master data.
-   * @param data the last @a MasterSymbolString.
    * @param index the index of the part to store.
+   * @param data the last @a MasterSymbolString.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t storeLastData(MasterSymbolString& data, size_t index);
+  virtual result_t storeLastData(size_t index, const MasterSymbolString& data);
 
   /**
    * Store last seen slave data.
-   * @param data the last seen @a SlaveSymbolString.
    * @param index the index of the part to store.
+   * @param data the last seen @a SlaveSymbolString.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t storeLastData(SlaveSymbolString& data, size_t index);
+  virtual result_t storeLastData(size_t index, const SlaveSymbolString& data);
 
   /**
-   * Decode the value from the last stored master data.
-   * @param output the @a ostringstream to append the formatted value to.
-   * @param outputFormat the @a OutputFormat options to use.
+   * Decode the value from the last stored master or slave data.
+   * @param master true for deocding the master data, false for slave.
    * @param leadingSeparator whether to prepend a separator before the formatted value.
    * @param fieldName the optional name of a field to limit the output to.
    * @param fieldIndex the optional index of the named field to limit the output to, or -1.
+   * @param outputFormat the @a OutputFormat options to use.
+   * @param output the @a ostream to append the formatted value to.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t decodeLastMasterData(ostringstream& output, OutputFormat outputFormat = 0,
-      bool leadingSeparator = false, const char* fieldName = NULL, ssize_t fieldIndex = -1);
+  virtual result_t decodeLastData(bool master, bool leadingSeparator, const char* fieldName,
+      ssize_t fieldIndex, OutputFormat outputFormat, ostream* output) const;
 
   /**
-   * Decode the value from the last stored slave data.
-   * @param output the @a ostringstream to append the formatted value to.
-   * @param outputFormat the @a OutputFormat options to use.
+   * Decode the value from the last stored master and slave data.
    * @param leadingSeparator whether to prepend a separator before the formatted value.
    * @param fieldName the optional name of a field to limit the output to.
    * @param fieldIndex the optional index of the named field to limit the output to, or -1.
-   * @return @a RESULT_OK on success, or an error code.
-   */
-  virtual result_t decodeLastSlaveData(ostringstream& output, OutputFormat outputFormat = 0,
-      bool leadingSeparator = false, const char* fieldName = NULL, ssize_t fieldIndex = -1);
-
-  /**
-   * Decode the value from the last stored data.
-   * @param output the @a ostringstream to append the formatted value to.
    * @param outputFormat the @a OutputFormat options to use.
-   * @param leadingSeparator whether to prepend a separator before the formatted value.
-   * @param fieldName the optional name of a field to limit the output to.
-   * @param fieldIndex the optional index of the named field to limit the output to, or -1.
+   * @param output the @a ostream to append the formatted value to.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t decodeLastData(ostringstream& output, OutputFormat outputFormat = 0,
-      bool leadingSeparator = false, const char* fieldName = NULL, ssize_t fieldIndex = -1);
+  virtual result_t decodeLastData(bool leadingSeparator, const char* fieldName,
+      ssize_t fieldIndex, OutputFormat outputFormat, ostream* output) const;
 
   /**
    * Decode a particular numeric field value from the last stored data.
-   * @param output the variable in which to store the value.
    * @param fieldName the name of the field to decode, or NULL for the first field.
    * @param fieldIndex the optional index of the named field, or -1.
+   * @param output the variable in which to store the value.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t decodeLastDataNumField(unsigned int& output, const char* fieldName, ssize_t fieldIndex = -1);
+  virtual result_t decodeLastDataNumField(const char* fieldName, ssize_t fieldIndex, unsigned int* output) const;
 
   /**
    * Get the last seen master data.
    * @return the last seen @a MasterSymbolString.
    */
-  MasterSymbolString& getLastMasterData() { return m_lastMasterData; }
+  const MasterSymbolString& getLastMasterData() const { return m_lastMasterData; }
 
   /**
    * Get the last seen slave data.
    * @return the last seen @a SlaveSymbolString.
    */
-  SlaveSymbolString& getLastSlaveData() { return m_lastSlaveData; }
+  const SlaveSymbolString& getLastSlaveData() const { return m_lastSlaveData; }
 
   /**
    * Get the time when this message was last seen with reasonable data.
    * @return the time when this message was last seen, or 0.
    */
-  time_t getLastUpdateTime() { return m_lastUpdateTime; }
+  time_t getLastUpdateTime() const { return m_lastUpdateTime; }
 
   /**
    * Get the time when the message data was last changed.
    * @return the time when the message data was last changed, or 0 if this message was not decoded yet.
    */
-  time_t getLastChangeTime() { return m_lastChangeTime; }
+  time_t getLastChangeTime() const { return m_lastChangeTime; }
 
   /**
    * Get the time when this message was last polled for.
    * @return the time when this message was last polled for, or 0 for never.
    */
-  time_t getLastPollTime() { return m_lastPollTime; }
+  time_t getLastPollTime() const { return m_lastPollTime; }
 
   /**
    * Return whether this @a Message needs to be polled after the other one.
    * @param other the other @a Message to compare with.
    * @return true if this @a Message needs to be polled after the other one.
    */
-  bool isLessPollWeight(const Message* other);
+  bool isLessPollWeight(const Message* other) const;
 
   /**
    * Write the message definition header or parts of it to the @a ostream.
+   * @param fieldNames the list of field names to write, or NULL for all.
    * @param output the @a ostream to append the formatted value to.
-   * @param fieldIds the list of field IDs to write, or NULL for all (see @p MESSAGEFIELD_TYPE constants).
    */
-  static void dumpHeader(ostream& output, vector<size_t>* fieldIds = NULL);
+  static void dumpHeader(const vector<string>* fieldNames, ostream* output);
 
   /**
    * Write the message definition or parts of it to the @a ostream.
-   * @param output the @a ostream to append the formatted value to.
-   * @param fieldIds the list of field IDs to write, or NULL for all (see @p MESSAGEFIELD_TYPE constants).
+   * @param fieldNames the list of field names to write, or NULL for all.
    * @param withConditions whether to include the optional conditions prefix.
+   * @param output the @a ostream to append the formatted value to.
    */
-  void dump(ostream& output, vector<size_t>* fieldIds = NULL, bool withConditions = false);
+  void dump(const vector<string>* fieldNames, bool withConditions, ostream* output) const;
 
   /**
    * Write the specified field to the @a ostream.
-   * @param output the @a ostream to append the formatted value to.
-   * @param fieldId the field ID to write (see @p MESSAGEFIELD_TYPE constants).
+   * @param fieldName the field name to write.
    * @param withConditions whether to include the optional conditions prefix.
+   * @param output the @a ostream to append the formatted value to.
    */
-  virtual void dumpField(ostream& output, size_t fieldId, bool withConditions = false);
+  virtual void dumpField(const string& fieldName, bool withConditions, ostream* output) const;
 
+  /**
+   * Decode the message from the last stored data.
+   * @param leadingSeparator whether to prepend a separator before the first value.
+   * @param outputFormat the @a OutputFormat options to use.
+   * @param output the @a ostringstream to append the decoded value(s) to.
+   */
+  virtual void decode(bool leadingSeparator, OutputFormat outputFormat, ostringstream* output) const;
 
  protected:
   /** the optional circuit name. */
@@ -608,18 +563,12 @@ class Message {
   /** the optional access level. */
   const string m_level;
 
-  /** the message name (unique within the same circuit and type). */
-  const string m_name;
-
   /** whether this is a write message. */
   const bool m_isWrite;
 
   /** true if message can only be initiated by a participant other than us,
    * false if message can be initiated by any participant. */
   const bool m_isPassive;
-
-  /** the comment. */
-  const string m_comment;
 
   /** the source address, or @a SYN for any (only relevant if passive). */
   const symbol_t m_srcAddress;
@@ -628,7 +577,7 @@ class Message {
   const symbol_t m_dstAddress;
 
   /** the primary, secondary, and optionally further command ID bytes. */
-  vector<symbol_t> m_id;
+  const vector<symbol_t> m_id;
 
   /**
    * the key for storing in @a MessageMap.
@@ -651,10 +600,10 @@ class Message {
    * <li>bytes 3-0: ID bytes (with cyclic xor if more than 4)</li>
    * </ul>
    */
-  uint64_t m_key;
+  const uint64_t m_key;
 
   /** the @a DataField for encoding/decoding the message. */
-  DataField* m_data;
+  const DataField* m_data;
 
   /** whether to delete the @a DataField during destruction. */
   const bool m_deleteData;
@@ -702,7 +651,7 @@ class ChainedMessage : public Message {
    * @param level the optional access level.
    * @param name the message name (unique within the same circuit and type).
    * @param isWrite whether this is a write message.
-   * @param comment the comment.
+   * @param attributes the additional named attributes.
    * @param srcAddress the source address, or @a SYN for any (only relevant if passive).
    * @param dstAddress the destination address, or @a SYN for any (set later).
    * @param id the primary, secondary, and optional further ID bytes common to each part of the chain.
@@ -713,49 +662,48 @@ class ChainedMessage : public Message {
    * @param pollPriority the priority for polling, or 0 for no polling at all.
    * @param condition the @a Condition for this message, or NULL.
    */
-  ChainedMessage(const string circuit, const string level, const string name,
-      const bool isWrite, const string comment,
-      const symbol_t srcAddress, const symbol_t dstAddress,
-      const vector<symbol_t> id,
-      vector< vector<symbol_t> > ids, vector<size_t> lengths,
-      DataField* data, const bool deleteData,
-      const size_t pollPriority,
+  ChainedMessage(const string& circuit, const string& level, const string& name,
+      bool isWrite, const map<string, string>& attributes,
+      symbol_t srcAddress, symbol_t dstAddress,
+      const vector<symbol_t>& id,
+      const vector< vector<symbol_t> >& ids, const vector<size_t>& lengths,
+      const DataField* data, bool deleteData,
+      size_t pollPriority = 0,
       Condition* condition = NULL);
 
   virtual ~ChainedMessage();
 
   // @copydoc
-  Message* derive(const symbol_t dstAddress, const symbol_t srcAddress = SYN,
-      const string circuit = "") override;
+  Message* derive(symbol_t dstAddress, symbol_t srcAddress, const string& circuit) const override;
 
   // @copydoc
   size_t getIdLength() const override { return m_ids[0].size() - 2; }
 
   // @copydoc
-  bool checkId(MasterSymbolString& master, size_t* index = NULL) override;
+  bool checkId(const MasterSymbolString& master, size_t* index) const override;
 
   // @copydoc
-  bool checkId(Message& other) override;
+  bool checkId(const Message& other) const override;
 
   // @copydoc
-  size_t getCount() override { return m_ids.size(); }
+  size_t getCount() const override { return m_ids.size(); }
 
 
  protected:
   // @copydoc
-  result_t prepareMasterPart(MasterSymbolString& master, istringstream& input, char separator,
-      size_t index) override;
+  result_t prepareMasterPart(size_t index, const char separator, istringstream* input,
+      MasterSymbolString* master) override;
 
 
  public:
   // @copydoc
-  result_t storeLastData(MasterSymbolString& master, SlaveSymbolString& slave) override;
+  result_t storeLastData(const MasterSymbolString& master, const SlaveSymbolString& slave) override;
 
   // @copydoc
-  result_t storeLastData(MasterSymbolString& data, size_t index) override;
+  result_t storeLastData(size_t index, const MasterSymbolString& data) override;
 
   // @copydoc
-  result_t storeLastData(SlaveSymbolString& data, size_t index) override;
+  result_t storeLastData(size_t index, const SlaveSymbolString& data) override;
 
   /**
    * Combine all last stored data.
@@ -765,7 +713,7 @@ class ChainedMessage : public Message {
 
  protected:
   // @copydoc
-  void dumpField(ostream& output, size_t fieldId, bool withConditions = false) override;
+  void dumpField(const string& fieldName, bool withConditions, ostream* output) const override;
 
 
  private:
@@ -847,27 +795,27 @@ class Condition {
   /**
    * Factory method for creating a new instance.
    * @param condName the name of the condition.
-   * @param row the mapped definition row.
    * @param rowDefaults the mapped definition defaults.
+   * @param row the mapped definition row.
    * @param returnValue the variable in which to store the created instance.
    * @return @a RESULT_OK on success, or an error code.
    */
-  static result_t create(const string condName, map<string, string> row, map<string, string> rowDefaults,
-      SimpleCondition*& returnValue);
+  static result_t create(const string& condName, const map<string, string>& rowDefaults,
+      map<string, string>* row, SimpleCondition** returnValue);
 
   /**
    * Derive a new @a SimpleCondition from this condition.
    * @param valueList the @a string with the new list of values.
    * @return the derived @a SimpleCondition instance, or NULL if the value list is invalid.
    */
-  virtual SimpleCondition* derive(string valueList) { return NULL; }
+  virtual SimpleCondition* derive(const string& valueList) const { return NULL; }
 
   /**
    * Write the condition definition or resolved expression to the @a ostream.
-   * @param output the @a ostream to append to.
    * @param matched true for dumping the matched value if the condition is true, false for dumping the definition.
+   * @param output the @a ostream to append to.
    */
-  virtual void dump(ostream& output, bool matched = false) = 0;
+  virtual void dump(bool matched, ostream* output) const = 0;
 
   /**
    * Combine this condition with another instance using a logical and.
@@ -879,12 +827,12 @@ class Condition {
   /**
    * Resolve the referred @a Message instance(s) and field index(es).
    * @param messages the @a MessageMap instance for resolving.
-   * @param errorMessage a @a ostringstream to which to add optional error messages.
    * @param readMessageFunc the function to call for immediate reading of a @a Message from the bus, or NULL.
+   * @param errorMessage a @a ostringstream to which to add optional error messages.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t resolve(MessageMap* messages, ostringstream& errorMessage,
-      void (*readMessageFunc)(Message* message) = NULL) = 0;
+  virtual result_t resolve(void (*readMessageFunc)(Message* message), MessageMap* messages,
+      ostringstream* errorMessage) = 0;
 
   /**
    * Check and return whether this condition is fulfilled.
@@ -919,8 +867,8 @@ class SimpleCondition : public Condition {
    * @param field the field name.
    * @param hasValues whether a value has to be checked against.
    */
-  SimpleCondition(const string condName, const string refName, const string circuit, const string level,
-      const string name, const symbol_t dstAddress, const string field, const bool hasValues = false)
+  SimpleCondition(const string& condName, const string& refName, const string& circuit, const string& level,
+      const string& name, symbol_t dstAddress, const string& field, bool hasValues = false)
     : Condition(),
       m_condName(condName), m_refName(refName), m_circuit(circuit), m_level(level), m_name(name),
       m_dstAddress(dstAddress), m_field(field), m_hasValues(hasValues), m_message(NULL) { }
@@ -931,17 +879,17 @@ class SimpleCondition : public Condition {
   virtual ~SimpleCondition() {}
 
   // @copydoc
-  SimpleCondition* derive(string valueList) override;
+  SimpleCondition* derive(const string& valueList) const override;
 
   // @copydoc
-  void dump(ostream& output, bool matched = false) override;
+  void dump(bool matched, ostream* output) const override;
 
   // @copydoc
   CombinedCondition* combineAnd(Condition* other) override;
 
   // @copydoc
-  result_t resolve(MessageMap* messages, ostringstream& errorMessage,
-      void (*readMessageFunc)(Message* message) = NULL) override;
+  result_t resolve(void (*readMessageFunc)(Message* message), MessageMap* messages,
+      ostringstream* errorMessage) override;
 
   // @copydoc
   bool isTrue() override;
@@ -950,7 +898,7 @@ class SimpleCondition : public Condition {
    * Return whether the condition is based on a numeric value.
    * @return whether the condition is based on a numeric value.
    */
-  virtual bool isNumeric() { return true; }
+  virtual bool isNumeric() const { return true; }
 
 
  protected:
@@ -960,7 +908,7 @@ class SimpleCondition : public Condition {
    * @param field the field name to check against, or empty for first field.
    * @return whether the field matches one of the valid values.
    */
-  virtual bool checkValue(Message* message, const string field) { return true; }
+  virtual bool checkValue(const Message* message, const string& field) { return true; }
 
   /** the value that matched in @a checkValue. */
   string m_matchedValue;
@@ -1013,8 +961,8 @@ class SimpleNumericCondition : public SimpleCondition {
    * @param field the field name.
    * @param valueRanges the valid value ranges (pairs of from/to inclusive), empty for @a m_message seen check.
    */
-  SimpleNumericCondition(const string condName, const string refName, const string circuit, const string level,
-      const string name, const symbol_t dstAddress, const string field, const vector<unsigned int> valueRanges)
+  SimpleNumericCondition(const string& condName, const string& refName, const string& circuit, const string& level,
+      const string& name, symbol_t dstAddress, const string& field, const vector<unsigned int>& valueRanges)
     : SimpleCondition(condName, refName, circuit, level, name, dstAddress, field, true),
       m_valueRanges(valueRanges) { }
 
@@ -1026,7 +974,7 @@ class SimpleNumericCondition : public SimpleCondition {
 
  protected:
   // @copydoc
-  bool checkValue(Message* message, const string field) override;
+  bool checkValue(const Message* message, const string& field) override;
 
 
  private:
@@ -1051,8 +999,8 @@ class SimpleStringCondition : public SimpleCondition {
    * @param field the field name.
    * @param values the valid values.
    */
-  SimpleStringCondition(const string condName, const string refName, const string circuit, const string level,
-      const string name, const symbol_t dstAddress, const string field, const vector<string> values)
+  SimpleStringCondition(const string& condName, const string& refName, const string& circuit, const string& level,
+      const string& name, symbol_t dstAddress, const string& field, const vector<string>& values)
     : SimpleCondition(condName, refName, circuit, level, name, dstAddress, field, true),
       m_values(values) { }
 
@@ -1062,12 +1010,12 @@ class SimpleStringCondition : public SimpleCondition {
   virtual ~SimpleStringCondition() {}
 
   // @copydoc
-  bool isNumeric() override { return false; }
+  bool isNumeric() const override { return false; }
 
 
  protected:
   // @copydoc
-  bool checkValue(Message* message, const string field) override;
+  bool checkValue(const Message* message, const string& field) override;
 
 
  private:
@@ -1093,14 +1041,14 @@ class CombinedCondition : public Condition {
   virtual ~CombinedCondition() {}
 
   // @copydoc
-  void dump(ostream& output, bool matched = false) override;
+  void dump(bool matched, ostream* output) const override;
 
   // @copydoc
   CombinedCondition* combineAnd(Condition* other) override { m_conditions.push_back(other); return this; }
 
   // @copydoc
-  result_t resolve(MessageMap* messages, ostringstream& errorMessage,
-      void (*readMessageFunc)(Message* message) = NULL) override;
+  result_t resolve(void (*readMessageFunc)(Message* message), MessageMap* messages,
+      ostringstream* errorMessage) override;
 
   // @copydoc
   bool isTrue() override;
@@ -1124,7 +1072,7 @@ class Instruction {
    * executed for the same source file.
    * @param defaults the mapped definition defaults.
    */
-  Instruction(Condition* condition, const bool singleton, map<string, string>& defaults)
+  Instruction(bool singleton, const map<string, string>& defaults, Condition* condition)
     : m_condition(condition), m_singleton(singleton), m_defaults(defaults) { }
 
   /**
@@ -1142,9 +1090,9 @@ class Instruction {
    * @param returnValue the variable in which to store the created instance.
    * @return @a RESULT_OK on success, or an error code.
    */
-  static result_t create(const string& contextPath, const string type,
-      Condition* condition, map<string, string>& row, map<string, string>& defaults,
-      Instruction*& returnValue);
+  static result_t create(const string& contextPath, const string& type,
+      Condition* condition, const map<string, string>& row, const map<string, string>& defaults,
+      Instruction** returnValue);
 
   /**
    * Return the @a Condition this instruction requires.
@@ -1158,34 +1106,31 @@ class Instruction {
    * @return whether this @a Instruction belongs to a set of instructions of which only the first one may be executed
    * for the same source file.
    */
-  bool isSingleton() { return m_singleton; }
+  bool isSingleton() const { return m_singleton; }
 
   /**
    * Return a string describing the destination from the stored default values.
    * @return a string describing the destination.
    */
-  string getDestination();
+  string getDestination() const;
 
   /**
    * Execute the instruction.
    * @param messages the @a MessageMap.
    * @param log the @a ostringstream to log success messages to (if necessary).
-   * @param condition the @a Condition that was successfully evaluated for execution, or NULL.
    * @return @a RESULT_OK on success, or an error code.
    */
-  virtual result_t execute(MessageMap* messages, ostringstream& log, Condition* condition) = 0;
+  virtual result_t execute(MessageMap* messages, ostringstream* log) = 0;
 
 
- private:
+ protected:
   /** the @a Condition this instruction requires, or null. */
   Condition* m_condition;
 
   /** whether this @a Instruction belongs to a set of instructions of which only the first one may be executed for the
    * same source file. */
-  bool m_singleton;
+  const bool m_singleton;
 
-
- protected:
   /** the defaults by field name. */
   map<string, string> m_defaults;
 };
@@ -1204,8 +1149,9 @@ class LoadInstruction : public Instruction {
    * @param defaults the mapped definition defaults.
    * @param filename the name of the file to load.
    */
-  LoadInstruction(Condition* condition, const bool singleton, map<string, string>& defaults, const string filename)
-    : Instruction(condition, singleton, defaults), m_filename(filename) { }
+  LoadInstruction(bool singleton, const map<string, string>& defaults, const string& filename,
+      Condition* condition)
+    : Instruction(singleton, defaults, condition), m_filename(filename) { }
 
   /**
    * Destructor.
@@ -1213,7 +1159,7 @@ class LoadInstruction : public Instruction {
   virtual ~LoadInstruction() { }
 
   // @copydoc
-  result_t execute(MessageMap* messages, ostringstream& log, Condition* condition) override;
+  result_t execute(MessageMap* messages, ostringstream* log) override;
 
 
  private:
@@ -1227,17 +1173,6 @@ class LoadInstruction : public Instruction {
  */
 class LoadedFileInfo {
  public:
-  /**
-   * Constructor.
-   * @param comment the optional comment for the file.
-   * @param hash the hash of the file.
-   * @param size the normalized size of the file.
-   * @param time the modification time of the file.
-   */
-  /*explicit LoadedFileInfo(string comment, size_t hash, size_t size, time_t time)
-      : m_comment(comment), m_hash(hash), m_size(size), m_time(time) {}
-  LoadedFileInfo(const LoadedFileInfo& copyFrom)
-      : m_comment(copyFrom.m_comment), m_hash(copyFrom.m_hash), m_size(copyFrom.m_size), m_time(copyFrom.m_time) {}*/
   /** the optional comment for the file. */
   string m_comment;
 
@@ -1259,9 +1194,13 @@ class MessageMap : public MappedFileReader {
  public:
   /**
    * Construct a new instance.
+   * @param configPath the path to the configuration files.
    * @param addAll whether to add all messages, even if duplicate.
+   * @param preferLanguage the preferred language to use, or empty.
    */
-  explicit MessageMap(const bool addAll = false) : MappedFileReader::MappedFileReader(true),
+  explicit MessageMap(const string& configPath, bool addAll = false, const string& preferLanguage = "")
+  : MappedFileReader::MappedFileReader(true),
+    m_configPath(configPath),
     m_addAll(addAll), m_additionalScanMessages(false), m_maxIdLength(0), m_maxBroadcastIdLength(0),
     m_messageCount(0), m_conditionalMessageCount(0), m_passiveMessageCount(0) {
     m_scanMessage = Message::createScanMessage();
@@ -1284,42 +1223,49 @@ class MessageMap : public MappedFileReader {
   }
 
   /**
+   * Return the relative file name of the given filename.
+   * @param filename the name of the configuration file (including relative path).
+   * @return the relative file name.
+   */
+  const string getRelativePath(const string& filename) const;
+
+  /**
    * Add a @a Message instance to this set.
    * @param message the @a Message instance to add.
    * @param storeByName whether to store the @a Message by name.
    * @return @a RESULT_OK on success, or an error code.
    * Note: the caller may not free the added instance on success.
    */
-  result_t add(Message* message, bool storeByName = true);
+  result_t add(bool storeByName, Message* message);
 
   // @copydoc
-  result_t getFieldMap(vector<string>& row, string& errorDescription) override;
+  result_t getFieldMap(const string& preferLanguage, vector<string>* row, string* errorDescription) const override;
 
   // @copydoc
-  result_t addDefaultFromFile(map<string, string>& row, vector< map<string, string> >& subRows,
-      string& errorDescription, const string filename, unsigned int lineNo) override;
+  result_t addDefaultFromFile(const string& filename, unsigned int lineNo, map<string, string>* row,
+      vector< map<string, string> >* subRows, string* errorDescription) override;
 
   /**
    * Read the @a Condition instance(s) from the types field.
-   * @param types the field from which to read the @a Condition instance(s).
    * @param filename the name of the file being read.
+   * @param types the field from which to read the @a Condition instance(s) and remove the definition prefix.
    * @param errorDescription a string in which to store the error description in case of error.
    * @param condition the variable in which to store the result.
    * @return @a RESULT_OK on success, or an error code.
    */
-  result_t readConditions(string& types, const string filename, string& errorDescription, Condition*& condition);
+  result_t readConditions(const string& filename, string* types, string* errorDescription, Condition** condition);
 
   // @copydoc
-  bool extractDefaultsFromFilename(string filename, map<string, string>& defaults,
-      symbol_t* destAddress = NULL, unsigned int* software = NULL, unsigned int* hardware = NULL) override;
+  bool extractDefaultsFromFilename(const string& filename, map<string, string>* defaults,
+      symbol_t* destAddress, unsigned int* software, unsigned int* hardware) const override;
 
   // @copydoc
-  result_t readFromFile(const string filename, string& errorDescription, bool verbose = false,
-      map<string, string>* defaults = NULL, size_t* hash = NULL, size_t* size = NULL, time_t* time = NULL) override;
+  result_t readFromFile(const string& filename, bool verbose, map<string, string>* defaults,
+      string* errorDescription, size_t* hash, size_t* size, time_t* time) override;
 
   // @copydoc
-  result_t addFromFile(map<string, string>& row, vector< map<string, string> >& subRows,
-      string& errorDescription, const string filename, unsigned int lineNo) override;
+  result_t addFromFile(const string& filename, unsigned int lineNo, map<string, string>* row,
+      vector< map<string, string> >* subRows, string* errorDescription) override;
 
   /**
    * Get the scan @a Message instance for the specified address.
@@ -1332,55 +1278,55 @@ class MessageMap : public MappedFileReader {
    * Return whether additional scan @a Message instances are available.
    * @return whether additional scan @a Message instances are available.
    */
-  bool hasAdditionalScanMessages() { return m_additionalScanMessages; }
+  bool hasAdditionalScanMessages() const { return m_additionalScanMessages; }
 
   /**
    * Resolve all @a Condition instances.
-   * @param errorDescription a string in which to store the error description in case of error.
    * @param verbose whether to verbosely add all problems to the error message.
+   * @param errorDescription a string in which to store the error description in case of error.
    * @return @a RESULT_OK on success, or an error code.
    */
-  result_t resolveConditions(string& errorDescription, bool verbose = false);
+  result_t resolveConditions(bool verbose, string* errorDescription);
 
   /**
    * Resolve a @a Condition.
+   * @param readMessageFunc the function to call for immediate reading of a @a Message from the bus, or NULL.
    * @param condition the @a Condition to resolve.
    * @param errorDescription a string in which to store the error description in case of error.
-   * @param readMessageFunc the function to call for immediate reading of a @a Message from the bus, or NULL.
    * @return @a RESULT_OK on success, or an error code.
    */
-  result_t resolveCondition(Condition* condition, string& errorDescription,
-      void (*readMessageFunc)(Message* message) = NULL);
+  result_t resolveCondition(void (*readMessageFunc)(Message* message), Condition* condition,
+      string* errorDescription);
 
   /**
    * Run all executable @a Instruction instances.
-   * @param log the @a ostringstream to log success messages to (if necessary).
    * @param readMessageFunc the function to call for immediate reading of a
    * @a Message values from the bus required for singleton instructions, or NULL.
+   * @param log the @a ostringstream to log success messages to (if necessary).
    * @return @a RESULT_OK on success, or an error code.
    */
-  result_t executeInstructions(ostringstream& log, void (*readMessageFunc)(Message* message) = NULL);
+  result_t executeInstructions(void (*readMessageFunc)(Message* message), ostringstream* log);
 
   /**
    * Add a loaded file to a participant.
    * @param address the slave address.
-   * @param file the name of the file from which a configuration part was loaded for the participant.
+   * @param filename the name of the configuration file (including relative path).
    * @param comment an optional comment.
    */
-  void addLoadedFile(symbol_t address, string file, string comment = "");
+  void addLoadedFile(symbol_t address, const string& filename, const string& comment = "");
 
   /**
    * Get the loaded files for a participant.
    * @param address the slave address.
    * @return the loaded configuration files (list of file names with relative path).
    */
-  vector<string>& getLoadedFiles(symbol_t address);
+  const vector<string>& getLoadedFiles(symbol_t address) const;
 
   /**
    * Get all loaded files.
    * @return the loaded configuration files (list of file names with relative path).
    */
-  vector<string> getLoadedFiles();
+  vector<string> getLoadedFiles() const;
 
   /**
    * Get the infos for a loaded file.
@@ -1391,8 +1337,8 @@ class MessageMap : public MappedFileReader {
    * @param time optional pointer to a @a time_t value for storing the modification time of the file, or NULL.
    * @return true if the file info was found, false otherwise.
    */
-  bool getLoadedFileInfo(string filename, string& comment, size_t* hash = NULL, size_t* size = NULL,
-      time_t* time = NULL);
+  bool getLoadedFileInfo(const string& filename, string* comment, size_t* hash = NULL, size_t* size = NULL,
+      time_t* time = NULL) const;
 
   /**
    * Get the stored @a Message instances for the key.
@@ -1400,7 +1346,7 @@ class MessageMap : public MappedFileReader {
    * @return the found @a Message instances, or NULL.
    * Note: the caller may not free the returned instances.
    */
-  vector<Message*>* getByKey(const uint64_t key);
+  const vector<Message*>* getByKey(uint64_t key) const;
 
   /**
    * Find the @a Message instance for the specified circuit and name.
@@ -1412,8 +1358,8 @@ class MessageMap : public MappedFileReader {
    * @return the @a Message instance, or NULL.
    * Note: the caller may not free the returned instance.
    */
-  Message* find(const string& circuit, const string& name, const string& levels, const bool isWrite,
-    const bool isPassive = false);
+  Message* find(const string& circuit, const string& name, const string& levels, bool isWrite,
+    bool isPassive = false) const;
 
   /**
    * Find all active get @a Message instances for the specified circuit and name.
@@ -1437,9 +1383,9 @@ class MessageMap : public MappedFileReader {
    * Note: the caller may not free the returned instances.
    */
   deque<Message*> findAll(const string& circuit, const string& name, const string& levels,
-    const bool completeMatch = true, const bool withRead = true, const bool withWrite = false,
-    const bool withPassive = false, const bool includeEmptyLevel = true, const bool onlyAvailable = true,
-    const time_t since = 0, const time_t until = 0);
+    bool completeMatch = true, bool withRead = true, bool withWrite = false,
+    bool withPassive = false, bool includeEmptyLevel = true, bool onlyAvailable = true,
+    time_t since = 0, time_t until = 0) const;
 
   /**
    * Find the @a Message instance for the specified master data.
@@ -1453,8 +1399,8 @@ class MessageMap : public MappedFileReader {
    * @return the @a Message instance, or NULL.
    * Note: the caller may not free the returned instance.
    */
-  Message* find(MasterSymbolString& master, bool anyDestination = false, const bool withRead = true,
-      const bool withWrite = true, const bool withPassive = true, const bool onlyAvailable = true);
+  Message* find(const MasterSymbolString& master, bool anyDestination = false, bool withRead = true,
+      bool withWrite = true, bool withPassive = true, bool onlyAvailable = true) const;
 
   /**
    * Invalidate cached data of the @a Message and all other instances with a matching name key.
@@ -1464,10 +1410,19 @@ class MessageMap : public MappedFileReader {
 
   /**
    * Add a @a Message to the list of instances to poll.
-   * @param message the @a Message to poll.
    * @param toFront whether to add the @a Message to the very front of the poll queue.
+   * @param message the @a Message to poll.
    */
-  void addPollMessage(Message* message, bool toFront = false);
+  void addPollMessage(bool toFront, Message* message);
+
+  /**
+   * Decode circuit specific data.
+   * @param circuit the name of the circuit.
+   * @param outputFormat the @a OutputFormat options to use.
+   * @param output the @a ostringstream to append the decoded value(s) to.
+   * @return true if data was added, false otherwise.
+   */
+  bool decodeCircuit(const string& circuit, OutputFormat outputFormat, ostringstream* output) const;
 
   /**
    * Removes all @a Message instances.
@@ -1478,25 +1433,25 @@ class MessageMap : public MappedFileReader {
    * Get the number of all stored @a Message instances.
    * @return the the number of all stored @a Message instances.
    */
-  size_t size() { return m_messageCount; }
+  size_t size() const { return m_messageCount; }
 
   /**
    * Get the number of stored conditional @a Message instances.
    * @return the the number of stored conditional @a Message instances.
    */
-  size_t sizeConditional() { return m_conditionalMessageCount; }
+  size_t sizeConditional() const { return m_conditionalMessageCount; }
 
   /**
    * Get the number of stored passive @a Message instances.
    * @return the the number of stored passive @a Message instances.
    */
-  size_t sizePassive() { return m_passiveMessageCount; }
+  size_t sizePassive() const { return m_passiveMessageCount; }
 
   /**
    * Get the number of stored @a Message instances with a poll priority.
    * @return the the number of stored @a Message instances with a poll priority.
    */
-  size_t sizePoll() { return m_pollMessages.size(); }
+  size_t sizePoll() const { return m_pollMessages.size(); }
 
   /**
    * Get the next @a Message to poll.
@@ -1509,23 +1464,29 @@ class MessageMap : public MappedFileReader {
    * Get the number of stored @a Condition instances.
    * @return the number of stored @a Condition instances.
    */
-  size_t sizeConditions() { return m_conditions.size(); }
+  size_t sizeConditions() const { return m_conditions.size(); }
 
   /**
    * Get the stored @a Condition instances.
    * @return the @a Condition instances by filename and condition name.
    */
-  map<string, Condition*>& getConditions() { return m_conditions; }
+  const map<string, Condition*>& getConditions() const { return m_conditions; }
 
   /**
    * Write the message definitions to the @a ostream.
-   * @param output the @a ostream to append the formatted messages to.
    * @param withConditions whether to include the optional conditions prefix.
+   * @param output the @a ostream to append the formatted messages to.
    */
-  void dump(ostream& output, bool withConditions = false);
+  void dump(bool withConditions, ostream* output) const;
 
 
  private:
+  /** empty vector for @a getLoadedFiles(). */
+  static vector<string> s_noFiles;
+
+  /** the path to the configuration files. */
+  const string m_configPath;
+
   /** whether to add all messages, even if duplicate. */
   const bool m_addAll;
 
@@ -1538,7 +1499,7 @@ class MessageMap : public MappedFileReader {
   /** whether additional scan @a Message instances are available. */
   bool m_additionalScanMessages;
 
-  /** the loaded configuration files by slave address ((list of file names with relative path). */
+  /** the loaded configuration files by slave address (list of file names with relative path). */
   map<symbol_t, vector<string>> m_loadedFiles;
 
   /** the @a LoadedFileInfo by for load configuration files (by file name with relative path). */
@@ -1559,7 +1520,7 @@ class MessageMap : public MappedFileReader {
   /** the number of distinct passive @a Message instances stored in @a m_messagesByKey. */
   size_t m_passiveMessageCount;
 
-  /** the known @a Message instances by lowercase circuit and name. */
+  /** the known @a Message instances by lowercase circuit (optional), name, and type. */
   map<string, vector<Message*> > m_messagesByName;
 
   /** the known @a Message instances by key. */
@@ -1573,6 +1534,9 @@ class MessageMap : public MappedFileReader {
 
   /** the list of @a Instruction instances by filename. */
   map<string, vector<Instruction*> > m_instructions;
+
+  /** additional attributes by circuit name. */
+  map<string, AttributedItem*> m_circuitData;
 };
 
 }  // namespace ebusd

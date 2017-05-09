@@ -109,7 +109,7 @@ class BusRequest {
    * @param master the master data @a MasterSymbolString to send.
    * @param deleteOnFinish whether to automatically delete this @a BusRequest when finished.
    */
-  BusRequest(MasterSymbolString& master, const bool deleteOnFinish)
+  BusRequest(const MasterSymbolString& master, bool deleteOnFinish)
     : m_master(master), m_busLostRetries(0),
       m_deleteOnFinish(deleteOnFinish) {}
 
@@ -124,12 +124,12 @@ class BusRequest {
    * @param slave the @a SlaveSymbolString received.
    * @return true if the request needs to be restarted.
    */
-  virtual bool notify(result_t result, SlaveSymbolString& slave) = 0;
+  virtual bool notify(result_t result, const SlaveSymbolString& slave) = 0;
 
 
  protected:
   /** the master data @a MasterSymbolString to send. */
-  MasterSymbolString& m_master;
+  const MasterSymbolString& m_master;
 
   /** the number of times a send is repeated due to lost arbitration. */
   unsigned int m_busLostRetries;
@@ -166,7 +166,7 @@ class PollRequest : public BusRequest {
   result_t prepare(symbol_t masterAddress);
 
   // @copydoc
-  bool notify(result_t result, SlaveSymbolString& slave) override;
+  bool notify(result_t result, const SlaveSymbolString& slave) override;
 
 
  private:
@@ -197,8 +197,8 @@ class ScanRequest : public BusRequest {
    * @param busHandler the @a BusHandler instance to notify of final scan result.
    * @param notifyIndex the offset to the index for notifying the scan result.
    */
-  ScanRequest(bool deleteOnFinish, MessageMap* messageMap, deque<Message*> messages, deque<symbol_t> slaves,
-      BusHandler* busHandler, size_t notifyIndex = 0)
+  ScanRequest(bool deleteOnFinish, MessageMap* messageMap, const deque<Message*>& messages,
+      const deque<symbol_t>& slaves, BusHandler* busHandler, size_t notifyIndex = 0)
     : BusRequest(m_master, deleteOnFinish), m_messageMap(messageMap), m_index(0), m_allMessages(messages),
       m_messages(messages), m_slaves(slaves), m_busHandler(busHandler), m_notifyIndex(notifyIndex),
       m_result(RESULT_ERR_NO_SIGNAL) {
@@ -219,7 +219,7 @@ class ScanRequest : public BusRequest {
   result_t prepare(symbol_t masterAddress);
 
   // @copydoc
-  bool notify(result_t result, SlaveSymbolString& slave) override;
+  bool notify(result_t result, const SlaveSymbolString& slave) override;
 
 
  private:
@@ -267,7 +267,7 @@ class ActiveBusRequest : public BusRequest {
    * @param master the master data @a MasterSymbolString to send.
    * @param slave reference to @a SlaveSymbolString for filling in the received slave data.
    */
-  ActiveBusRequest(MasterSymbolString& master, SlaveSymbolString& slave)
+  ActiveBusRequest(const MasterSymbolString& master, SlaveSymbolString* slave)
     : BusRequest(master, false), m_result(RESULT_ERR_NO_SIGNAL), m_slave(slave) {}
 
   /**
@@ -276,7 +276,7 @@ class ActiveBusRequest : public BusRequest {
   virtual ~ActiveBusRequest() {}
 
   // @copydoc
-  bool notify(result_t result, SlaveSymbolString& slave) override;
+  bool notify(result_t result, const SlaveSymbolString& slave) override;
 
 
  private:
@@ -284,7 +284,7 @@ class ActiveBusRequest : public BusRequest {
   result_t m_result;
 
   /** reference to @a SlaveSymbolString for filling in the received slave data. */
-  SlaveSymbolString& m_slave;
+  SlaveSymbolString* m_slave;
 };
 
 
@@ -312,7 +312,7 @@ class GrabbedMessage {
    * @param master the last @a MasterSymbolString.
    * @param slave the last @a SymbolString.
    */
-  void setLastData(MasterSymbolString& master, SlaveSymbolString& slave);
+  void setLastData(const MasterSymbolString& master, const SlaveSymbolString& slave);
 
   /**
    * Get the last @a MasterSymbolString.
@@ -325,11 +325,11 @@ class GrabbedMessage {
    * @param unknown whether to dump only if this message is unknown.
    * @param messages the @a MessageMap instance for resolving known @a Message instances.
    * @param first whether this is the first message to be added to the output.
-   * @param output the @a ostringstream to format the messages to.
    * @param decode whether to add decoding hints.
+   * @param output the @a ostringstream to format the messages to.
    * @return whether the message was added to the output.
    */
-  bool dump(const bool unknown, MessageMap* messages, bool first, ostringstream& output, const bool decode = false);
+  bool dump(bool unknown, MessageMap* messages, bool first, bool decode, ostringstream* output) const;
 
 
  private:
@@ -365,11 +365,11 @@ class BusHandler : public WaitThread {
    * @param pollInterval the interval in seconds in which poll messages are cycled, or 0 if disabled.
    */
   BusHandler(Device* device, MessageMap* messages,
-      const symbol_t ownAddress, const bool answer,
-      const unsigned int busLostRetries, const unsigned int failedSendRetries,
-      const unsigned int transferLatency, const unsigned int busAcquireTimeout, const unsigned int slaveRecvTimeout,
-      const unsigned int lockCount, const bool generateSyn,
-      const unsigned int pollInterval)
+      symbol_t ownAddress, bool answer,
+      unsigned int busLostRetries, unsigned int failedSendRetries,
+      unsigned int transferLatency, unsigned int busAcquireTimeout, unsigned int slaveRecvTimeout,
+      unsigned int lockCount, bool generateSyn,
+      unsigned int pollInterval)
     : WaitThread(), m_device(device), m_reconnect(false), m_messages(messages),
       m_ownMasterAddress(ownAddress), m_ownSlaveAddress(getSlaveAddress(ownAddress)),
       m_answer(answer), m_addressConflict(false),
@@ -379,7 +379,7 @@ class BusHandler : public WaitThread {
       m_lockCount(lockCount <= 3 ? 3 : lockCount), m_remainLockCount(m_autoLockCount ? 1 : 0),
       m_generateSynInterval(generateSyn ? SYN_TIMEOUT*getMasterNumber(ownAddress)+SYMBOL_DURATION : 0),
       m_pollInterval(pollInterval), m_lastReceive(0), m_lastPoll(0),
-      m_currentRequest(NULL), m_runningScans(0), m_nextSendPos(0),
+      m_currentRequest(NULL), m_currentAnswering(false), m_runningScans(0), m_nextSendPos(0),
       m_symPerSec(0), m_maxSymPerSec(0),
       m_state(bs_noSignal), m_escape(0), m_crc(0), m_crcValid(false), m_repeat(false),
       m_grabMessages(true) {
@@ -413,12 +413,25 @@ class BusHandler : public WaitThread {
   void clear();
 
   /**
+   * Inject a message from outside and treat it as regularly retrieved from the bus.
+   * @param master the @a MasterSymbolString with the master data.
+   * @param slave the @a SlaveSymbolString with the slave data.
+   */
+  void injectMessage(const MasterSymbolString& master, const SlaveSymbolString& slave) {
+    m_command = master;
+    m_response = slave;
+    m_addressConflict = true;  // avoid conflict messages
+    receiveCompleted();
+    m_addressConflict = false;
+  }
+
+  /**
    * Send a message on the bus and wait for the answer.
    * @param master the @a MasterSymbolString with the master data to send.
    * @param slave the @a SlaveSymbolString that will be filled with retrieved slave data.
    * @return the result code.
    */
-  result_t sendAndWait(MasterSymbolString& master, SlaveSymbolString& slave);
+  result_t sendAndWait(const MasterSymbolString& master, SlaveSymbolString* slave);
 
   /**
    * Prepare the master part for the @a Message, send it to the bus and wait for the answer.
@@ -428,8 +441,8 @@ class BusHandler : public WaitThread {
    * @param srcAddress the source address to set, or @a SYN for the own master address.
    * @return the result code.
    */
-  result_t readFromBus(Message* message, string inputStr, const symbol_t dstAddress = SYN,
-      const symbol_t srcAddress = SYN);
+  result_t readFromBus(Message* message, const string& inputStr, symbol_t dstAddress = SYN,
+      symbol_t srcAddress = SYN);
 
   /**
    * Main thread entry.
@@ -442,7 +455,7 @@ class BusHandler : public WaitThread {
    * @param levels the current user's access levels.
    * @return the result code.
    */
-  result_t startScan(bool full, string levels);
+  result_t startScan(bool full, const string& levels);
 
   /**
    * Set the scan result @a string for a scanned slave address.
@@ -450,7 +463,7 @@ class BusHandler : public WaitThread {
    * @param index the index of the result to set (starting with 0 for the ident message).
    * @param str the scan result @a string to set, or empty if not a single part of the scan was successful.
    */
-  void setScanResult(symbol_t dstAddress, size_t index, string str);
+  void setScanResult(symbol_t dstAddress, size_t index, const string& str);
 
   /**
    * Called from @a ScanRequest upon completion.
@@ -464,31 +477,31 @@ class BusHandler : public WaitThread {
    * @param output the @a ostringstream to format the scan result to.
    * @return true when a scan result was formatted, false otherwise.
    */
-  bool formatScanResult(symbol_t slave, ostringstream& output, bool leadingNewline);
+  bool formatScanResult(symbol_t slave, bool leadingNewline, ostringstream* output) const;
 
   /**
    * Format the scan result to the @a ostringstream.
    * @param output the @a ostringstream to format the scan result to.
    */
-  void formatScanResult(ostringstream& output);
+  void formatScanResult(ostringstream* output) const;
 
   /**
    * Format information about seen participants to the @a ostringstream.
    * @param output the @a ostringstream to append the info to.
    */
-  void formatSeenInfo(ostringstream& output);
+  void formatSeenInfo(ostringstream* output) const;
 
   /**
    * Format information for running the update check to the @a ostringstream.
    * @param output the @a ostringstream to append the info to.
    */
-  void formatUpdateInfo(ostringstream& output);
+  void formatUpdateInfo(ostringstream* output) const;
 
   /**
    * Send a scan message on the bus and wait for the answer.
    * @param dstAddress the destination slave address to send to.
    * @param loadScanConfig true to immediately load the message definitions matching the scan result.
-   * @param reload true to fully reload the scan results.
+   * @param reload true to fully reload the scan results, false when the slave ID was already retrieved.
    * @return the result code.
    */
   result_t scanAndWait(symbol_t dstAddress, bool loadScanConfig = false, bool reload = false);
@@ -503,16 +516,16 @@ class BusHandler : public WaitThread {
   /**
    * Format the grabbed messages to the @a ostringstream.
    * @param unknown whether to dump only unknown messages.
-   * @param output the @a ostringstream to format the messages to.
    * @param decode whether to add decoding hints.
+   * @param output the @a ostringstream to format the messages to.
    */
-  void formatGrabResult(const bool unknown, ostringstream& output, const bool decode = false);
+  void formatGrabResult(bool unknown, bool decode, ostringstream* output) const;
 
   /**
    * Return true when a signal on the bus is available.
    * @return true when a signal on the bus is available.
    */
-  bool hasSignal() { return m_state != bs_noSignal; }
+  bool hasSignal() const { return m_state != bs_noSignal; }
 
   /**
    * Reconnect the device.
@@ -523,34 +536,33 @@ class BusHandler : public WaitThread {
    * Return the current symbol rate.
    * @return the number of received symbols in the last second.
    */
-  unsigned int getSymbolRate() { return m_symPerSec; }
+  unsigned int getSymbolRate() const { return m_symPerSec; }
 
   /**
    * Return the maximum seen symbol rate.
    * @return the maximum number of received symbols per second ever seen.
    */
-  unsigned int getMaxSymbolRate() { return m_maxSymPerSec; }
+  unsigned int getMaxSymbolRate() const { return m_maxSymPerSec; }
 
   /**
    * Return the number of masters already seen.
    * @return the number of masters already seen (including ebusd itself).
    */
-  unsigned int getMasterCount() { return m_masterCount; }
+  unsigned int getMasterCount() const { return m_masterCount; }
 
   /**
    * Get the next slave address that still needs to be scanned or loaded.
    * @param lastAddress the last returned slave address, or 0 for returning the first one.
-   * @param onlyScanned true to return only already scanned addresses.
    * @return the next slave address that still needs to be scanned or loaded, or @a SYN.
    */
-  symbol_t getNextScanAddress(symbol_t lastAddress, bool onlyScanned = false);
+  symbol_t getNextScanAddress(symbol_t lastAddress) const;
 
   /**
    * Set the state of the participant to configuration @a LOADED.
    * @param address the slave address.
    * @param file the file from which the configuration was loaded, or empty if loading was not possible.
    */
-  void setScanConfigLoaded(symbol_t address, string file);
+  void setScanConfigLoaded(symbol_t address, const string& file);
 
 
  private:
@@ -572,8 +584,9 @@ class BusHandler : public WaitThread {
   /**
    * Add a seen bus address.
    * @param address the seen bus address.
+   * @return true if a conflict with the own addresses was detected, false otherwise.
    */
-  void addSeenAddress(symbol_t address);
+  bool addSeenAddress(symbol_t address);
 
   /**
    * Called when a passive reception was successfully completed.
@@ -589,7 +602,7 @@ class BusHandler : public WaitThread {
    * @param request the created @a ScanRequest (may be NULL with positive result if scan is not needed).
    * @return the result code.
    */
-  result_t prepareScan(symbol_t slave, bool full, string levels, bool& reload, ScanRequest*& request);
+  result_t prepareScan(symbol_t slave, bool full, const string& levels, bool* reload, ScanRequest** request);
 
   /** the @a Device instance for accessing the bus. */
   Device* m_device;
@@ -656,6 +669,9 @@ class BusHandler : public WaitThread {
 
   /** the currently handled BusRequest, or NULL. */
   BusRequest* m_currentRequest;
+
+  /** whether currently answering a request from another participant. */
+  bool m_currentAnswering;
 
   /** the queue of @a BusRequests that are already finished. */
   Queue<BusRequest*> m_finishedRequests;

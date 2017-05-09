@@ -38,75 +38,176 @@ using std::setw;
 /** the week day names. */
 static const char* dayNames[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
 
-size_t getDataFieldId(const string name) {
-  if (name == "name" || name.find("field") != string::npos) {
-    return DATAFIELD_NAME;
+/** the default field map for field templates. */
+static const char* defaultTemplateFieldMap[] = {
+    "name", "*type", "divisor/values", "unit", "comment",
+    "*name", "type", "divisor/values", "unit", "comment",
+};
+
+
+
+string getDataFieldName(const string& name, bool* supportsLanguage) {
+  if (name.find("name") != string::npos || name.find("field") != string::npos) {
+    return "name";
   }
   if (name.find("part") != string::npos) {
-    return DATAFIELD_PART;
+    return "part";
   }
   if (name.find("type") != string::npos) {
-    return DATAFIELD_TYPE;
+    return "type";
   }
-  if (name.find("divisor") != string::npos || name.find("values") != string::npos) {
-    return DATAFIELD_DIVISORVALUES;
+  if (name.find("divisor") != string::npos) {
+    if (name.find("values") != string::npos) {
+      *supportsLanguage = true;
+      return "divisor/values";
+    }
+    return "divisor";
   }
-  if (name == "unit") {
-    return DATAFIELD_UNIT;
+  *supportsLanguage = true;
+  if (name == "values" || name == "unit") {
+    return name;
   }
-  if (name == "comment") {
-    return DATAFIELD_COMMENT;
+  if (name.find("comment") != string::npos) {
+    return "comment";
   }
-  return UINT_MAX;
+  return "";
 }
 
-string getDataFieldName(const size_t fieldId) {
-  switch (fieldId) {
-  case DATAFIELD_NAME:
-    return "name";
-  case DATAFIELD_PART:
-    return "part";
-  case DATAFIELD_TYPE:
-    return "type";
-  case DATAFIELD_DIVISORVALUES:
-    return "divisor/values";
-  case DATAFIELD_UNIT:
-    return "unit";
-  case DATAFIELD_COMMENT:
-    return "comment";
-  default:
+
+string AttributedItem::formatInt(size_t value) {
+  ostringstream stream;
+  stream << dec << static_cast<unsigned>(value);
+  return stream.str();
+}
+
+string AttributedItem::pluck(const string& key, map<string, string>* row) {
+  const auto it = row->find(key);
+  if (it == row->end()) {
     return "";
   }
+  const string ret = it->second;
+  row->erase(it);
+  return ret;
 }
 
-result_t DataField::create(vector< map<string, string> >& rows, string& errorDescription,
-    DataFieldTemplates* templates, DataField*& returnField,
-    const bool isWriteMessage,
-    const bool isTemplate, const bool isBroadcastOrMasterDestination,
-    const size_t maxFieldLength) {
-  // template: name,[,part]basetype[:len]|template[:name][,[divisor|values][,[unit][,[comment]]]]
-  // std: name,part,basetype[:len]|template[:name][,[divisor|values][,[unit][,[comment]]]]
-  vector<SingleDataField*> fields;
+void AttributedItem::dumpString(bool prependFieldSeparator, const string& str, ostream* output) {
+  if (prependFieldSeparator) {
+    *output << FIELD_SEPARATOR;
+  }
+  if (str.find_first_of(FIELD_SEPARATOR) == string::npos) {
+    *output << str;
+  } else {
+    *output << TEXT_SEPARATOR << str << TEXT_SEPARATOR;
+  }
+}
+
+void AttributedItem::appendJson(bool prependFieldSeparator, const string& name, const string& value,
+    bool asString, ostream* output) {
+  bool plain = !asString;
+  if (plain) {
+    plain = value == "false" || value == "true";
+    if (!plain) {
+      const char* str = value.c_str();
+      char* strEnd = NULL;
+      strtod(str, &strEnd);
+      plain = strEnd && !*strEnd;
+    }
+  }
+  if (prependFieldSeparator) {
+    *output << FIELD_SEPARATOR;
+  }
+  *output << " \"" << name << "\": ";
+  if (plain) {
+    *output << value;
+  } else {
+    *output << '"' << value << '"';
+  }
+}
+
+void AttributedItem::mergeAttributes(map<string, string>* attributes) const {
+  for (const auto& entry : m_attributes) {
+    const auto it = attributes->find(entry.first);
+    if (it == attributes->end() || it->second.empty()) {
+      (*attributes)[entry.first] = entry.second;
+    }
+  }
+}
+
+void AttributedItem::dumpAttribute(bool prependFieldSeparator, const string& name, ostream* output) const {
+  dumpString(prependFieldSeparator, getAttribute(name), output);
+}
+
+bool AttributedItem::appendAttribute(OutputFormat outputFormat, const string& name, bool onlyIfNonEmpty,
+    const string& prefix, const string& suffix, ostream* output) const {
+  const auto it = m_attributes.find(name);
+  string value = it == m_attributes.end() ? "" : it->second;
+  if (onlyIfNonEmpty && value.empty()) {
+    return false;
+  }
+  if (outputFormat & OF_JSON) {
+    appendJson(true, name, value, false, output);
+  } else {
+    *output << " " << prefix << value << suffix;
+  }
+  return true;
+}
+
+bool AttributedItem::appendAttributes(OutputFormat outputFormat, ostream* output) const {
+  bool ret = false;
+  if ((outputFormat & OF_UNITS)) {
+    ret = appendAttribute(outputFormat, "unit", true, "", "", output) || ret;
+  }
+  if ((outputFormat & OF_COMMENTS)) {
+    ret = appendAttribute(outputFormat, "comment", true, "[", "]", output) || ret;
+  }
+  if (outputFormat & OF_ALL_ATTRS) {
+    for (const auto entry : m_attributes) {
+      ret = true;
+      if (!entry.second.empty() && entry.first != "unit" && entry.first != "comment") {
+        if (outputFormat & OF_JSON) {
+          appendJson(true, entry.first, entry.second, false, output);
+        } else {
+          *output << " " << entry.first << "=" << entry.second;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+string AttributedItem::getAttribute(const string& name) const {
+  const auto it = m_attributes.find(name);
+  return it == m_attributes.end() ? "" : it->second;
+}
+
+
+result_t DataField::create(bool isWriteMessage, bool isTemplate, bool isBroadcastOrMasterDestination,
+    size_t maxFieldLength, const DataFieldTemplates* templates, vector< map<string, string> >* rows,
+    string* errorDescription, const DataField** returnField) {
+  // template: name[,part]basetype[:len]|template[:name][,[divisor|values][,[unit][,[comment]]]]
+  // std: name[,part],basetype[:len]|template[:name][,[divisor|values][,[unit][,[comment]]]]
+  vector<const SingleDataField*> fields;
   string firstName;
   result_t result = RESULT_OK;
-  if (rows.empty()) {
+  if (rows->empty()) {
+    *errorDescription = "no fields";
     return RESULT_ERR_EOF;
   }
-  for (auto row : rows) {
+  size_t fieldIndex = 0;
+  for (auto& row : *rows) {
     if (result != RESULT_OK) {
       break;
     }
-    const string name = row["name"];
+    const string name = pluck("name", &row);
     PartType partType;
-    int divisor = 0;
     bool hasPart = false;
+    string part = pluck("part", &row);
     if (isTemplate) {
       partType = pt_any;
     } else {
-      string part = row["part"];
       hasPart = !part.empty();
       if (hasPart) {
-        FileReader::tolower(part);
+        FileReader::tolower(&part);
       }
       if (isBroadcastOrMasterDestination
         || (isWriteMessage && !hasPart)
@@ -116,50 +217,59 @@ result_t DataField::create(vector< map<string, string> >& rows, string& errorDes
         || part == "s") {  // slave data
         partType = pt_slaveData;
       } else {
-        errorDescription = "part "+part+" in "+MappedFileReader::combineRow(row);
+        *errorDescription = "part "+part+" in field "+formatInt(fieldIndex);
         result = hasPart ? RESULT_ERR_INVALID_ARG : RESULT_ERR_MISSING_ARG;
         break;
       }
-    }
-    string comment = row["comment"];
-    if (comment == NULL_VALUE) {
-      comment = "";
     }
     if (fields.empty()) {
       firstName = name;
     }
 
-    const string typeStr = row["type"];  // basetype[:len]|template[:name]
+    const string typeStr = pluck("type", &row);  // basetype[:len]|template[:name]
     if (typeStr.empty()) {
-      errorDescription = "field type in "+MappedFileReader::combineRow(row);
+      *errorDescription = "field type in field "+formatInt(fieldIndex);
       result = RESULT_ERR_MISSING_ARG;
       break;
     }
 
+    string divisorStr = pluck("divisor", &row);
+    string valuesStr = pluck("values", &row);
+    if (divisorStr.empty() && valuesStr.empty()) {
+      divisorStr = pluck("divisor/values", &row);  // [divisor|values]
+      if (divisorStr.find('=') != string::npos) {
+        valuesStr = divisorStr;
+        divisorStr = "";
+      }
+    }
+    int divisor = 0;
+    if (!divisorStr.empty()) {
+      divisor = parseSignedInt(divisorStr.c_str(), 10, -MAX_DIVISOR, MAX_DIVISOR, &result);
+      if (result != RESULT_OK) {
+        *errorDescription = "divisor "+divisorStr+" in field "+formatInt(fieldIndex);
+      }
+    }
+    bool verifyValue = false;
     map<unsigned int, string> values;
     string constantValue;
-    bool verifyValue = false;
-    const string divisorStr = row["divisor/values"];  // [divisor|values]
-    if (!divisorStr.empty()) {
-      size_t equalPos = divisorStr.find('=');
+    if (!valuesStr.empty()) {
+      size_t equalPos = valuesStr.find('=');
       if (equalPos == string::npos) {
-        divisor = parseSignedInt(divisorStr.c_str(), 10, -MAX_DIVISOR, MAX_DIVISOR, result);
-        if (result != RESULT_OK) {
-          errorDescription = "divisor "+divisorStr+" in "+MappedFileReader::combineRow(row);
-        }
-      } else if (equalPos == 0 && divisorStr.length() > 1) {
-        verifyValue = divisorStr[1] == '=';  // == forced verification of constant value
-        if (verifyValue && divisorStr.length() == 1) {
-          errorDescription = "divisor "+divisorStr+" in "+MappedFileReader::combineRow(row);
+        *errorDescription = "values "+valuesStr+" in field "+formatInt(fieldIndex);
+        result = RESULT_ERR_INVALID_LIST;
+      } else if (equalPos == 0 && valuesStr.length() > 1) {
+        verifyValue = valuesStr[1] == '=';  // == forced verification of constant value
+        if (verifyValue && valuesStr.length() == 1) {
+          *errorDescription = "values "+valuesStr+" in field "+formatInt(fieldIndex);
           result = RESULT_ERR_INVALID_LIST;
           break;
         }
-        constantValue = divisorStr.substr(equalPos+(verifyValue?2:1));
+        constantValue = valuesStr.substr(equalPos+(verifyValue?2:1));
       } else {
         string token;
-        istringstream stream(divisorStr);
+        istringstream stream(valuesStr);
         while (getline(stream, token, VALUE_SEPARATOR)) {
-          FileReader::trim(token);
+          FileReader::trim(&token);
           const char* str = token.c_str();
           char* strEnd = NULL;
           unsigned long id;
@@ -170,19 +280,19 @@ result_t DataField::create(vector< map<string, string> >& rows, string& errorDes
             id = strtoul(str, &strEnd, 10);  // decimal
           }
           if (strEnd == NULL || strEnd == str || id > MAX_VALUE) {
-            errorDescription = "value "+token+" in "+MappedFileReader::combineRow(row);
+            *errorDescription = "value "+token+" in field "+formatInt(fieldIndex);
             result = RESULT_ERR_INVALID_LIST;
             break;
           }
           // remove blanks around '=' sign
           while (*strEnd == ' ') strEnd++;
           if (*strEnd != '=') {
-            errorDescription = "value "+token+" in "+MappedFileReader::combineRow(row);
+            *errorDescription = "value "+token+" in field "+formatInt(fieldIndex);
             result = RESULT_ERR_INVALID_LIST;
             break;
           }
           token = string(strEnd + 1);
-          FileReader::trim(token);
+          FileReader::trim(&token);
           values[(unsigned int)id] = token;
         }
       }
@@ -191,16 +301,13 @@ result_t DataField::create(vector< map<string, string> >& rows, string& errorDes
       }
     }
 
-    string unit = row["unit"];
-    if (unit == NULL_VALUE) {
-      unit = "";
-    }
     bool firstType = true;
     string token;
     istringstream stream(typeStr);
     while (result == RESULT_OK && getline(stream, token, VALUE_SEPARATOR)) {
-      FileReader::trim(token);
-      DataField* templ = templates->get(token);
+      bool lastType = stream.eof();
+      FileReader::trim(&token);
+      const DataField* templ = templates->get(token);
       size_t pos = token.find(LENGTH_SEPARATOR);
       if (templ == NULL && pos != string::npos) {
         templ = templates->get(token.substr(0, pos));
@@ -215,47 +322,61 @@ result_t DataField::create(vector< map<string, string> >& rows, string& errorDes
           if (pos+2 == token.length() && token[pos+1] == '*') {
             length = REMAIN_LEN;
           } else {
-            length = (size_t)parseInt(token.substr(pos+1).c_str(), 10, 1, (unsigned int)maxFieldLength, result);
+            length = (size_t)parseInt(token.substr(pos+1).c_str(), 10, 1, (unsigned int)maxFieldLength, &result);
             if (result != RESULT_OK) {
-              errorDescription = "field type "+token+" in "+MappedFileReader::combineRow(row);
+              *errorDescription = "field type "+token+" in field "+formatInt(fieldIndex);
               break;
             }
           }
           typeName = token.substr(0, pos);
         }
         transform(typeName.begin(), typeName.end(), typeName.begin(), ::toupper);
-        SingleDataField* add = NULL;
-        result = SingleDataField::create(typeName, length, firstType ? name : "", firstType ? comment : "",
-            firstType ? unit : "", partType, divisor, values, constantValue, verifyValue, add);
-        if (add != NULL) {
-          fields.push_back(add);
+        const DataType* dataType = DataTypeList::getInstance()->get(typeName, length == REMAIN_LEN ? 0 : length);
+        if (!dataType) {
+          result = RESULT_ERR_NOTFOUND;
+          *errorDescription = "field type "+typeName+" in field "+formatInt(fieldIndex);
         } else {
-          if (result == RESULT_OK) {
-            errorDescription = "field type " + typeName+" in "+MappedFileReader::combineRow(row);
-            result = RESULT_ERR_NOTFOUND;  // type not found
+          SingleDataField* add = NULL;
+          result = SingleDataField::create(firstType ? name : "", row, dataType, partType, length, divisor,
+            constantValue, verifyValue, &values, &add);
+          if (add != NULL) {
+            fields.push_back(add);
           } else {
-            errorDescription = "create field in "+MappedFileReader::combineRow(row);
+            if (result == RESULT_OK) {
+              *errorDescription = "field type "+typeName+" in field "+formatInt(fieldIndex);
+              result = RESULT_ERR_NOTFOUND;  // type not found
+            } else {
+              *errorDescription = "create field in field "+formatInt(fieldIndex);
+            }
           }
         }
       } else if (!constantValue.empty()) {
-        errorDescription = "constant value "+constantValue+" in "+MappedFileReader::combineRow(row);
+        *errorDescription = "constant value "+constantValue+" in field "+formatInt(fieldIndex);
         result = RESULT_ERR_INVALID_ARG;  // invalid value list
       } else {  // template[:name]
         string fieldName;
-        bool lastType = stream.eof();
         if (pos != string::npos) {  // replacement name specified
           fieldName = token.substr(pos+1);
         } else {
           fieldName = (firstType && lastType) ? name : "";
         }
-        result = templ->derive(fieldName, firstType ? comment : "", firstType ? unit : "", partType, divisor, values,
-            fields);
-        if (result != RESULT_OK) {
-          errorDescription = "derive field "+fieldName+" in "+MappedFileReader::combineRow(row);
+        if (lastType) {
+          result = templ->derive(fieldName, partType, divisor, values, &row, &fields);
+        } else {
+          map<string, string> attrs = row;  // don't let DataField::derive() consume the row
+          result = templ->derive(fieldName, partType, divisor, values, &attrs, &fields);
         }
+        if (result != RESULT_OK) {
+          *errorDescription = "derive field "+fieldName+" in field "+formatInt(fieldIndex);
+        }
+      }
+      if (firstType && !lastType) {
+        row.erase("comment");
+        row.erase("unit");
       }
       firstType = false;
     }
+    fieldIndex++;
   }
 
   if (result != RESULT_OK) {
@@ -267,39 +388,24 @@ result_t DataField::create(vector< map<string, string> >& rows, string& errorDes
   }
 
   if (fields.size() == 1) {
-    returnField = fields[0];
+    *returnField = fields[0];
   } else {
-    returnField = new DataFieldSet(firstName, "", fields);
+    *returnField = new DataFieldSet(firstName, fields);
   }
   return RESULT_OK;
 }
 
-void DataField::dumpString(ostream& output, const string str, const bool prependFieldSeparator) {
-  if (prependFieldSeparator) {
-    output << FIELD_SEPARATOR;
-  }
-  if (str.find_first_of(FIELD_SEPARATOR) == string::npos) {
-    output << str;
-  } else {
-    output << TEXT_SEPARATOR << str << TEXT_SEPARATOR;
-  }
-}
-
-string DataField::getDayName(int day) {
+const char* DataField::getDayName(int day) {
   if (day < 0 || day > 6) {
     return "";
   }
   return dayNames[day];
 }
 
-result_t SingleDataField::create(const string id, const size_t length,
-  const string name, const string comment, const string unit,
-  const PartType partType, int divisor, map<unsigned int, string> values,
-  const string constantValue, const bool verifyValue, SingleDataField* &returnField) {
-  DataType* dataType = DataTypeList::getInstance()->get(id, length == REMAIN_LEN ? 0 : length);
-  if (!dataType) {
-    return RESULT_ERR_NOTFOUND;
-  }
+
+result_t SingleDataField::create(const string& name, const map<string, string>& attributes, const DataType* dataType,
+    PartType partType, size_t length, int divisor, const string& constantValue,
+    bool verifyValue, map<unsigned int, string>* values, SingleDataField** returnField) {
   size_t bitCount = dataType->getBitCount();
   size_t byteCount = (bitCount + 7) / 8;
   if (dataType->isAdjustableLength()) {
@@ -322,55 +428,62 @@ result_t SingleDataField::create(const string id, const size_t length,
     }
   }
   if (!constantValue.empty()) {
-    returnField = new ConstantDataField(name, comment, unit, dataType, partType, byteCount, constantValue, verifyValue);
+    *returnField = new ConstantDataField(name, attributes, dataType, partType, byteCount, constantValue, verifyValue);
     return RESULT_OK;
   }
   if (dataType->isNumeric()) {
-    NumberDataType* numType = reinterpret_cast<NumberDataType*>(dataType);
-    if (values.empty() && numType->hasFlag(DAY)) {
+    const NumberDataType* numType = reinterpret_cast<const NumberDataType*>(dataType);
+    if (values->empty() && numType->hasFlag(DAY)) {
       for (unsigned int i = 0; i < sizeof(dayNames) / sizeof(dayNames[0]); i++) {
-        values[numType->getMinValue() + i] = dayNames[i];
+        (*values)[numType->getMinValue() + i] = dayNames[i];
       }
     }
-    result_t result = numType->derive(divisor, bitCount, numType);
+    result_t result = numType->derive(divisor, bitCount, &numType);
     if (result != RESULT_OK) {
       return result;
     }
-    if (values.empty()) {
-      returnField = new SingleDataField(name, comment, unit, numType, partType, byteCount);
+    if (values->empty()) {
+      *returnField = new SingleDataField(name, attributes, numType, partType, byteCount);
       return RESULT_OK;
     }
-    if (values.begin()->first < numType->getMinValue() || values.rbegin()->first > numType->getMaxValue()) {
+    if (values->begin()->first < numType->getMinValue() || values->rbegin()->first > numType->getMaxValue()) {
       return RESULT_ERR_OUT_OF_RANGE;
     }
-    returnField = new ValueListDataField(name, comment, unit, numType, partType, byteCount, values);
+    *returnField = new ValueListDataField(name, attributes, numType, partType, byteCount, *values);
     return RESULT_OK;
   }
-  if (divisor != 0 || !values.empty()) {
+  if (divisor != 0 || !values->empty()) {
     return RESULT_ERR_INVALID_ARG;  // cannot set divisor or values for string field
   }
-  returnField = new SingleDataField(name, comment, unit, dataType, partType, byteCount);
+  *returnField = new SingleDataField(name, attributes, dataType, partType, byteCount);
   return RESULT_OK;
 }
 
-void SingleDataField::dump(ostream& output) {
-  output << setw(0) << dec;  // initialize formatting
-  dumpString(output, m_name, false);
-  output << FIELD_SEPARATOR;
+void SingleDataField::dumpPrefix(ostream* output) const {
+  *output << setw(0) << dec;  // initialize formatting
+  dumpString(false, m_name, output);
+  *output << FIELD_SEPARATOR;
   if (m_partType == pt_masterData) {
-    output << "m";
+    *output << "m";
   } else if (m_partType == pt_slaveData) {
-    output << "s";
+    *output << "s";
   }
-  output << FIELD_SEPARATOR;
-  m_dataType->dump(output, m_length);
-  dumpString(output, m_unit);
-  dumpString(output, m_comment);
+  *output << FIELD_SEPARATOR;
 }
 
+void SingleDataField::dumpSuffix(ostream* output) const {
+  dumpAttribute(true, "unit", output);
+  dumpAttribute(true, "comment", output);
+}
 
-result_t SingleDataField::read(SymbolString& data, size_t offset,
-    unsigned int& output, const char* fieldName, ssize_t fieldIndex) {
+void SingleDataField::dump(ostream* output) const {
+  dumpPrefix(output);
+  m_dataType->dump(m_length, true, output);
+  dumpSuffix(output);
+}
+
+result_t SingleDataField::read(const SymbolString& data, size_t offset,
+    const char* fieldName, ssize_t fieldIndex, unsigned int* output) const {
   if (m_partType == pt_any) {
     return RESULT_ERR_INVALID_PART;
   }
@@ -384,12 +497,13 @@ result_t SingleDataField::read(SymbolString& data, size_t offset,
   if (isIgnored() || (fieldName != NULL && (m_name != fieldName || fieldIndex > 0))) {
     return RESULT_EMPTY;
   }
-  return m_dataType->readRawValue(data, offset, m_length, output);
+  result_t res = m_dataType->readRawValue(offset, m_length, data, output);
+  return res;
 }
 
-result_t SingleDataField::read(SymbolString& data, size_t offset,
-    ostringstream& output, OutputFormat outputFormat, ssize_t outputIndex,
-    bool leadingSeparator, const char* fieldName, ssize_t fieldIndex) {
+result_t SingleDataField::read(const SymbolString& data, size_t offset,
+    bool leadingSeparator, const char* fieldName, ssize_t fieldIndex,
+    OutputFormat outputFormat, ssize_t outputIndex, ostream* output) const {
   if (m_partType == pt_any) {
     return RESULT_ERR_INVALID_PART;
   }
@@ -406,86 +520,72 @@ result_t SingleDataField::read(SymbolString& data, size_t offset,
   bool shortFormat = outputFormat & OF_SHORT;
   if (outputFormat & OF_JSON) {
     if (leadingSeparator) {
-      output << ",";
+      *output << ",";
     }
     if (!shortFormat) {
-      output << "\n    ";
+      *output << "\n    ";
     }
     if (outputIndex >= 0 || m_name.empty() || !(outputFormat & OF_NAMES)) {
-      output << "\"" << static_cast<signed int>(outputIndex < 0 ? 0 : outputIndex) << "\":";
+      *output << "\"" << static_cast<signed int>(outputIndex < 0 ? 0 : outputIndex) << "\":";
       if (!shortFormat) {
-        output << " {\"name\": \"" << m_name << "\"" << ", \"value\": ";
+        *output << " {\"name\": \"" << m_name << "\"" << ", \"value\": ";
       }
     } else {
-      output << "\"" << m_name << "\":";
+      *output << "\"" << m_name << "\":";
       if (!shortFormat) {
-        output << " {\"value\": ";
+        *output << " {\"value\": ";
       }
     }
   } else {
     if (leadingSeparator) {
-      output << UI_FIELD_SEPARATOR;
+      *output << UI_FIELD_SEPARATOR;
     }
     if (outputFormat & OF_NAMES) {
-      output << m_name << "=";
+      *output << m_name << "=";
     }
   }
 
-  result_t result = readSymbols(data, offset, output, outputFormat);
+  result_t result = readSymbols(data, offset, outputFormat, output);
   if (result != RESULT_OK) {
     return result;
   }
-  if (!shortFormat && (outputFormat & OF_UNITS) && m_unit.length() > 0) {
-    if (outputFormat & OF_JSON) {
-      output << ", \"unit\": \"" << m_unit << '"';
-    } else {
-      output << " " << m_unit;
-    }
-  }
-  if (!shortFormat && (outputFormat & OF_COMMENTS) && m_comment.length() > 0) {
-    if (outputFormat & OF_JSON) {
-      output << ", \"comment\": \"" << m_comment << '"';
-    } else {
-      output << " [" << m_comment << "]";
-    }
+  if (!shortFormat) {
+    appendAttributes(outputFormat, output);
   }
   if (!shortFormat && (outputFormat & OF_JSON)) {
-    output << "}";
+    *output << "}";
   }
   return RESULT_OK;
 }
 
-result_t SingleDataField::write(istringstream& input, SymbolString& data,
-    size_t offset, char separator, size_t* length) {
+result_t SingleDataField::write(char separator, size_t offset, istringstream* input,
+    SymbolString* data, size_t* usedLength) const {
   if (m_partType == pt_any) {
     return RESULT_ERR_INVALID_PART;
   }
-  if ((data.isMaster() ? pt_masterData : pt_slaveData) != m_partType) {
+  if ((data->isMaster() ? pt_masterData : pt_slaveData) != m_partType) {
     return RESULT_OK;
   }
-  return writeSymbols(input, (const size_t)offset, data, length);
+  return writeSymbols(offset, input, data, usedLength);
 }
 
-result_t SingleDataField::readSymbols(SymbolString& input,
-    const size_t offset,
-    ostringstream& output, OutputFormat outputFormat) {
-  return m_dataType->readSymbols(input, offset, m_length, output, outputFormat);
+result_t SingleDataField::readSymbols(const SymbolString& input, size_t offset,
+    OutputFormat outputFormat, ostream* output) const {
+  return m_dataType->readSymbols(offset, m_length, input, outputFormat, output);
 }
 
-result_t SingleDataField::writeSymbols(istringstream& input,
-  const size_t offset,
-  SymbolString& output, size_t* usedLength) {
-  return m_dataType->writeSymbols(input, offset, m_length, output, usedLength);
+result_t SingleDataField::writeSymbols(size_t offset, istringstream* input,
+    SymbolString* output, size_t* usedLength) const {
+  return m_dataType->writeSymbols(offset, m_length, input, output, usedLength);
 }
 
-SingleDataField* SingleDataField::clone() {
+const SingleDataField* SingleDataField::clone() const {
   return new SingleDataField(*this);
 }
 
-result_t SingleDataField::derive(string name, string comment,
-    string unit, const PartType partType,
-    int divisor, map<unsigned int, string> values,
-    vector<SingleDataField*>& fields) {
+result_t SingleDataField::derive(const string& name, PartType partType, int divisor,
+    const map<unsigned int, string>& values, map<string, string>* attributes,
+    vector<const SingleDataField*>* fields) const {
   if (m_partType != pt_any && partType == pt_any) {
     return RESULT_ERR_INVALID_PART;  // cannot create a template from a concrete instance
   }
@@ -493,41 +593,34 @@ result_t SingleDataField::derive(string name, string comment,
   if (!numeric && (divisor != 0 || !values.empty())) {
     return RESULT_ERR_INVALID_ARG;  // cannot set divisor or values for non-numeric field
   }
-  if (name.empty()) {
-    name = m_name;
-  }
-  if (comment.empty()) {
-    comment = m_comment;
-  }
-  if (unit.empty()) {
-    unit = m_unit;
-  }
-  DataType* dataType = m_dataType;
+  string useName = name.empty() ? m_name : name;
+  mergeAttributes(attributes);
+  const DataType* dataType = m_dataType;
   if (numeric) {
-    NumberDataType* numType = reinterpret_cast<NumberDataType*>(dataType);
-    result_t result = numType->derive(divisor, 0, numType);
+    const NumberDataType* numType = reinterpret_cast<const NumberDataType*>(dataType);
+    result_t result = numType->derive(divisor, 0, &numType);
     if (result != RESULT_OK) {
       return result;
     }
     dataType = numType;
   }
   if (values.empty()) {
-    fields.push_back(new SingleDataField(name, comment, unit, dataType, partType, m_length));
+    fields->push_back(new SingleDataField(useName, *attributes, dataType, partType, m_length));
   } else if (numeric) {
-    fields.push_back(new ValueListDataField(name, comment, unit, reinterpret_cast<NumberDataType*>(dataType),
-        partType, m_length, values));
+    fields->push_back(new ValueListDataField(useName, *attributes, reinterpret_cast<const NumberDataType*>(dataType),
+      partType, m_length, values));
   } else {
     return RESULT_ERR_INVALID_ARG;
   }
   return RESULT_OK;
 }
 
-bool SingleDataField::hasField(const char* fieldName, bool numeric) {
+bool SingleDataField::hasField(const char* fieldName, bool numeric) const {
   bool numericType = m_dataType->isNumeric();
   return numeric == numericType && (fieldName == NULL || fieldName == m_name);
 }
 
-size_t SingleDataField::getLength(PartType partType, size_t maxLength) {
+size_t SingleDataField::getLength(PartType partType, size_t maxLength) const {
   if (partType != m_partType) {
     return 0;
   }
@@ -535,13 +628,13 @@ size_t SingleDataField::getLength(PartType partType, size_t maxLength) {
   return remainder ? maxLength : m_length;
 }
 
-bool SingleDataField::hasFullByteOffset(bool after) {
+bool SingleDataField::hasFullByteOffset(bool after) const {
   if (m_length > 1) {
     return true;
   }
   int16_t firstBit;
   if (m_dataType->isNumeric()) {
-    NumberDataType* num = reinterpret_cast<NumberDataType*>(m_dataType);
+    const NumberDataType* num = reinterpret_cast<const NumberDataType*>(m_dataType);
     firstBit = num->getFirstBit();
   } else {
     firstBit = 0;
@@ -551,26 +644,18 @@ bool SingleDataField::hasFullByteOffset(bool after) {
 }
 
 
-ValueListDataField* ValueListDataField::clone() {
+const ValueListDataField* ValueListDataField::clone() const {
   return new ValueListDataField(*this);
 }
 
-result_t ValueListDataField::derive(string name, string comment,
-    string unit, const PartType partType,
-    int divisor, map<unsigned int, string> values,
-    vector<SingleDataField*>& fields) {
+result_t ValueListDataField::derive(const string& name, PartType partType, int divisor,
+    const map<unsigned int, string>& values, map<string, string>* attributes,
+    vector<const SingleDataField*>* fields) const {
   if (m_partType != pt_any && partType == pt_any) {
     return RESULT_ERR_INVALID_PART;  // cannot create a template from a concrete instance
   }
-  if (name.empty()) {
-    name = m_name;
-  }
-  if (comment.empty()) {
-    comment = m_comment;
-  }
-  if (unit.empty()) {
-    unit = m_unit;
-  }
+  string useName = name.empty() ? m_name : name;
+  mergeAttributes(attributes);
   if (divisor != 0 && divisor != 1) {
     return RESULT_ERR_INVALID_ARG;  // cannot use divisor != 1 for value list field
   }
@@ -578,89 +663,86 @@ result_t ValueListDataField::derive(string name, string comment,
     return RESULT_ERR_INVALID_ARG;
   }
   if (!values.empty()) {
-    NumberDataType* num = reinterpret_cast<NumberDataType*>(m_dataType);
+    const NumberDataType* num = reinterpret_cast<const NumberDataType*>(m_dataType);
     if (values.begin()->first < num->getMinValue() || values.rbegin()->first > num->getMaxValue()) {
       return RESULT_ERR_INVALID_ARG;  // cannot use divisor != 1 for value list field
     }
+    fields->push_back(new ValueListDataField(useName, *attributes,
+        reinterpret_cast<const NumberDataType*>(m_dataType), partType, m_length, values));
   } else {
-    values = m_values;
+    fields->push_back(new ValueListDataField(useName, *attributes,
+        reinterpret_cast<const NumberDataType*>(m_dataType), partType, m_length, m_values));
   }
-  fields.push_back(new ValueListDataField(name, comment, unit, reinterpret_cast<NumberDataType*>(m_dataType),
-      partType, m_length, values));
   return RESULT_OK;
 }
 
-void ValueListDataField::dump(ostream& output) {
-  output << setw(0) << dec;  // initialize formatting
-  dumpString(output, m_name, false);
-  output << FIELD_SEPARATOR;
-  if (m_partType == pt_masterData) {
-    output << "m";
-  } else if (m_partType == pt_slaveData) {
-    output << "s";
-  }
-  output << FIELD_SEPARATOR;
-  if (!m_dataType->dump(output, m_length)) {  // no divisor appended
-    for (map<unsigned int, string>::iterator it = m_values.begin(); it != m_values.end(); it++) {
-      if (it != m_values.begin()) {
-        output << VALUE_SEPARATOR;
+void ValueListDataField::dump(ostream* output) const {
+  dumpPrefix(output);
+  if (!m_dataType->dump(m_length, true, output)) {  // no divisor appended
+    bool first = true;
+    for (const auto it : m_values) {
+      if (first) {
+        first = false;
+      } else {
+        *output << VALUE_SEPARATOR;
       }
-      output << static_cast<unsigned>(it->first) << "=" << it->second;
+      *output << it.first << "=" << it.second;
     }
   }  // else: impossible since divisor is not allowed for ValueListDataField
-  dumpString(output, m_unit);
-  dumpString(output, m_comment);
+  dumpSuffix(output);
 }
 
-result_t ValueListDataField::readSymbols(SymbolString& input,
-    const size_t offset,
-    ostringstream& output, OutputFormat outputFormat) {
+result_t ValueListDataField::readSymbols(const SymbolString& input, size_t offset,
+    OutputFormat outputFormat, ostream* output) const {
   unsigned int value = 0;
 
-  result_t result = m_dataType->readRawValue(input, offset, m_length, value);
+  result_t result = m_dataType->readRawValue(offset, m_length, input, &value);
   if (result != RESULT_OK) {
     return result;
   }
-  map<unsigned int, string>::iterator it = m_values.find(value);
+  const auto it = m_values.find(value);
   if (it == m_values.end() && value != m_dataType->getReplacement()) {
     // fall back to raw value in input
-    output << setw(0) << dec << static_cast<unsigned>(value);
+    *output << setw(0) << dec << value;
     return RESULT_OK;
   }
   if (it == m_values.end()) {
     if (outputFormat & OF_JSON) {
-      output << "null";
+      *output << "null";
     } else if (value == m_dataType->getReplacement()) {
-      output << NULL_VALUE;
+      *output << NULL_VALUE;
     }
   } else if (outputFormat & OF_NUMERIC) {
-    output << setw(0) << dec << static_cast<unsigned>(value);
+    *output << setw(0) << dec << value;
   } else if (outputFormat & OF_JSON) {
-    output << '"' << it->second << '"';
+    if (outputFormat & OF_VALUENAME) {
+      *output << "{\"value\":" << setw(0) << dec << value;
+      *output << ",\"name\":\"" << it->second << "\"}";
+    } else {
+      *output << '"' << it->second << '"';
+    }
   } else {
-    output << it->second;
+    if (outputFormat & OF_VALUENAME) {
+      *output << setw(0) << dec << value << '=';
+    }
+    *output << it->second;
   }
   return RESULT_OK;
 }
 
-result_t ValueListDataField::writeSymbols(istringstream& input,
-    const size_t offset,
-    SymbolString& output, size_t* usedLength) {
-  NumberDataType* numType = reinterpret_cast<NumberDataType*>(m_dataType);
-  if (isIgnored()) {
+result_t ValueListDataField::writeSymbols(size_t offset, istringstream* input,
+    SymbolString* output, size_t* usedLength) const {
+  const NumberDataType* numType = reinterpret_cast<const NumberDataType*>(m_dataType);
+  if (isIgnored() || input->str() == NULL_VALUE) {
     // replacement value
     return numType->writeRawValue(numType->getReplacement(), offset, m_length, output, usedLength);
   }
-  const char* str = input.str().c_str();
 
-  for (map<unsigned int, string>::iterator it = m_values.begin(); it != m_values.end(); it++) {
-    if (it->second.compare(str) == 0) {
-      return numType->writeRawValue(it->first, offset, m_length, output, usedLength);
+  const char* str = input->str().c_str();
+  for (const auto it : m_values) {
+    if (it.second.compare(str) == 0) {
+      return numType->writeRawValue(it.first, offset, m_length, output, usedLength);
     }
-  }
-  if (strcasecmp(str, NULL_VALUE) == 0) {
-    // replacement value
-    return numType->writeRawValue(numType->getReplacement(), offset, m_length, output, usedLength);
   }
   char* strEnd = NULL;  // fall back to raw value in input
   unsigned int value;
@@ -675,25 +757,21 @@ result_t ValueListDataField::writeSymbols(istringstream& input,
 }
 
 
-ConstantDataField* ConstantDataField::clone() {
+const ConstantDataField* ConstantDataField::clone() const {
   return new ConstantDataField(*this);
 }
 
-result_t ConstantDataField::derive(string name, string comment,
-    string unit, const PartType partType,
-    int divisor, map<unsigned int, string> values,
-    vector<SingleDataField*>& fields) {
+result_t ConstantDataField::derive(const string& name, PartType partType, int divisor,
+    const map<unsigned int, string>& values, map<string, string>* attributes,
+    vector<const SingleDataField*>* fields) const {
   if (m_partType != pt_any && partType == pt_any) {
     return RESULT_ERR_INVALID_PART;  // cannot create a template from a concrete instance
   }
-  if (name.empty()) {
-    name = m_name;
-  }
-  if (comment.empty()) {
-    comment = m_comment;
-  }
-  if (unit.empty()) {
-    unit = m_unit;
+  string useName = name.empty() ? m_name : name;
+  for (const auto entry : m_attributes) {  // merge with this attributes
+    if ((*attributes)[entry.first].empty()) {
+      (*attributes)[entry.first] = entry.second;
+    }
   }
   if (divisor != 0) {
     return RESULT_ERR_INVALID_ARG;  // cannot use other than current divisor for constant value field
@@ -701,38 +779,28 @@ result_t ConstantDataField::derive(string name, string comment,
   if (!values.empty()) {
     return RESULT_ERR_INVALID_ARG;  // cannot use value list for constant value field
   }
-  fields.push_back(new ConstantDataField(name, comment, unit, m_dataType, partType, m_length, m_value, m_verify));
+  fields->push_back(new ConstantDataField(useName, *attributes, m_dataType, partType, m_length, m_value, m_verify));
   return RESULT_OK;
 }
 
-void ConstantDataField::dump(ostream& output) {
-  output << setw(0) << dec;  // initialize formatting
-  dumpString(output, m_name, false);
-  output << FIELD_SEPARATOR;
-  if (m_partType == pt_masterData) {
-    output << "m";
-  } else if (m_partType == pt_slaveData) {
-    output << "s";
-  }
-  output << FIELD_SEPARATOR;
-  if (!m_dataType->dump(output, m_length)) {  // no divisor appended
-    output << (m_verify?"==":"=") << m_value;
+void ConstantDataField::dump(ostream* output) const {
+  dumpPrefix(output);
+  if (!m_dataType->dump(m_length, true, output)) {  // no divisor appended
+    *output << (m_verify?"==":"=") << m_value;
   }  // else: impossible since divisor is not allowed for ConstantDataField
-  dumpString(output, m_unit);
-  dumpString(output, m_comment);
+  dumpSuffix(output);
 }
 
-result_t ConstantDataField::readSymbols(SymbolString& input,
-    const size_t offset,
-    ostringstream& output, OutputFormat outputFormat) {
+result_t ConstantDataField::readSymbols(const SymbolString& input, size_t offset,
+    OutputFormat outputFormat, ostream* output) const {
   ostringstream coutput;
-  result_t result = SingleDataField::readSymbols(input, offset, coutput, 0);
+  result_t result = SingleDataField::readSymbols(input, offset, 0, &coutput);
   if (result != RESULT_OK) {
     return result;
   }
   if (m_verify) {
     string value = coutput.str();
-    FileReader::trim(value);
+    FileReader::trim(&value);
     if (value != m_value) {
       return RESULT_ERR_OUT_OF_RANGE;
     }
@@ -740,11 +808,10 @@ result_t ConstantDataField::readSymbols(SymbolString& input,
   return RESULT_OK;
 }
 
-result_t ConstantDataField::writeSymbols(istringstream& input,
-    const size_t offset,
-    SymbolString& output, size_t* usedLength) {
+result_t ConstantDataField::writeSymbols(size_t offset, istringstream* input,
+    SymbolString* output, size_t* usedLength) const {
   istringstream cinput(m_value);
-  return SingleDataField::writeSymbols(cinput, offset, output, usedLength);
+  return SingleDataField::writeSymbols(offset, &cinput, output, usedLength);
 }
 
 
@@ -752,9 +819,12 @@ DataFieldSet* DataFieldSet::s_identFields = NULL;
 
 DataFieldSet* DataFieldSet::getIdentFields() {
   if (s_identFields == NULL) {
-    NumberDataType* uchDataType = reinterpret_cast<NumberDataType*>(DataTypeList::getInstance()->get("UCH"));
-    StringDataType* stringDataType = reinterpret_cast<StringDataType*>(DataTypeList::getInstance()->get("STR"));
-    NumberDataType* pinDataType = reinterpret_cast<NumberDataType*>(DataTypeList::getInstance()->get("PIN"));
+    const NumberDataType* uchDataType = reinterpret_cast<const NumberDataType*>(
+        DataTypeList::getInstance()->get("UCH"));
+    const StringDataType* stringDataType = reinterpret_cast<const StringDataType*>(
+        DataTypeList::getInstance()->get("STR"));
+    const NumberDataType* pinDataType = reinterpret_cast<const NumberDataType*>(
+        DataTypeList::getInstance()->get("PIN"));
     map<unsigned int, string> manufacturers;
     manufacturers[0x06] = "Dungs";
     manufacturers[0x0f] = "FH Ostfalia";
@@ -781,37 +851,35 @@ DataFieldSet* DataFieldSet::getIdentFields() {
     manufacturers[0xc0] = "Toby";
     manufacturers[0xc5] = "Weishaupt";
     manufacturers[0xfd] = "ebusd.eu";
-    vector<SingleDataField*> fields;
-    fields.push_back(new ValueListDataField("MF", "", "", uchDataType, pt_slaveData, 1, manufacturers));
-    fields.push_back(new SingleDataField("ID", "", "", stringDataType, pt_slaveData, 5));
-    fields.push_back(new SingleDataField("SW", "", "", pinDataType, pt_slaveData, 2));
-    fields.push_back(new SingleDataField("HW", "", "", pinDataType, pt_slaveData, 2));
-    s_identFields = new DataFieldSet("ident", "", fields);
+    vector<const SingleDataField*> fields;
+    map<string, string> attributes;
+    fields.push_back(new ValueListDataField("MF", attributes, uchDataType, pt_slaveData, 1, manufacturers));
+    fields.push_back(new SingleDataField("ID", attributes, stringDataType, pt_slaveData, 5));
+    fields.push_back(new SingleDataField("SW", attributes, pinDataType, pt_slaveData, 2));
+    fields.push_back(new SingleDataField("HW", attributes, pinDataType, pt_slaveData, 2));
+    s_identFields = new DataFieldSet("ident", fields);
   }
   return s_identFields;
 }
 
 DataFieldSet::~DataFieldSet() {
-  while (!m_fields.empty()) {
-    delete m_fields.back();
-    m_fields.pop_back();
+  for (const auto field : m_fields) {
+    delete field;
   }
 }
 
-DataFieldSet* DataFieldSet::clone() {
-  vector<SingleDataField*> fields;
-  for (vector<SingleDataField*>::iterator it = m_fields.begin(); it < m_fields.end(); it++) {
-    fields.push_back((*it)->clone());
+const DataFieldSet* DataFieldSet::clone() const {
+  vector<const SingleDataField*> fields;
+  for (const auto field : m_fields) {
+    fields.push_back(field->clone());
   }
-  return new DataFieldSet(m_name, m_comment, fields);
+  return new DataFieldSet(m_name, fields);
 }
 
-size_t DataFieldSet::getLength(PartType partType, size_t maxLength) {
+size_t DataFieldSet::getLength(PartType partType, size_t maxLength) const {
   size_t length = 0;
   bool previousFullByteOffset[] = { true, true, true, true };
-
-  for (vector<SingleDataField*>::iterator it = m_fields.begin(); it < m_fields.end(); it++) {
-    SingleDataField* field = *it;
+  for (const auto field : m_fields) {
     if (field->getPartType() == partType) {
       if (!previousFullByteOffset[partType] && !field->hasFullByteOffset(false)) {
         length--;
@@ -831,7 +899,7 @@ size_t DataFieldSet::getLength(PartType partType, size_t maxLength) {
   return length;
 }
 
-string DataFieldSet::getName(ssize_t fieldIndex) {
+string DataFieldSet::getName(ssize_t fieldIndex) const {
   if (fieldIndex < 0) {
     return m_name;
   }
@@ -839,35 +907,33 @@ string DataFieldSet::getName(ssize_t fieldIndex) {
     return "";
   }
   if (m_uniqueNames) {
-    return m_fields[fieldIndex]->getName();
+    return m_fields[fieldIndex]->getName(-1);
   }
   ostringstream ostream;
   ostream << static_cast<signed>(fieldIndex);
   return ostream.str();
 }
 
-result_t DataFieldSet::derive(string name, string comment,
-    string unit, const PartType partType,
-    int divisor, map<unsigned int, string> values,
-    vector<SingleDataField*>& fields) {
+result_t DataFieldSet::derive(const string& name, PartType partType, int divisor,
+    const map<unsigned int, string>& values, map<string, string>* attributes,
+    vector<const SingleDataField*>* fields) const {
   if (!values.empty()) {
     return RESULT_ERR_INVALID_ARG;  // value list not allowed in set derive
   }
-  bool first = true;
-  for (vector<SingleDataField*>::iterator it = m_fields.begin(); it < m_fields.end(); it++) {
-    result_t result = (*it)->derive("", first?comment:"", first?unit:"", partType, divisor, values, fields);
+  for (const auto field : m_fields) {
+    result_t result = field->derive("", partType, divisor, values, attributes, fields);
     if (result != RESULT_OK) {
       return result;
     }
-    first = false;
+    attributes->erase("comment");
+    attributes->erase("unit");
   }
 
   return RESULT_OK;
 }
 
-bool DataFieldSet::hasField(const char* fieldName, bool numeric) {
-  for (vector<SingleDataField*>::iterator it = m_fields.begin(); it < m_fields.end(); it++) {
-    SingleDataField* field = *it;
+bool DataFieldSet::hasField(const char* fieldName, bool numeric) const {
+  for (const auto field : m_fields) {
     if (field->hasField(fieldName, numeric) == 0) {
       return true;
     }
@@ -875,31 +941,30 @@ bool DataFieldSet::hasField(const char* fieldName, bool numeric) {
   return false;
 }
 
-void DataFieldSet::dump(ostream& output) {
+void DataFieldSet::dump(ostream* output) const {
   bool first = true;
-  for (vector<SingleDataField*>::iterator it = m_fields.begin(); it < m_fields.end(); it++) {
+  for (const auto field : m_fields) {
     if (first) {
       first = false;
     } else {
-      output << FIELD_SEPARATOR;
+      *output << FIELD_SEPARATOR;
     }
-    (*it)->dump(output);
+    field->dump(output);
   }
 }
 
-result_t DataFieldSet::read(SymbolString& data, size_t offset,
-    unsigned int& output, const char* fieldName, ssize_t fieldIndex) {
+result_t DataFieldSet::read(const SymbolString& data, size_t offset,
+    const char* fieldName, ssize_t fieldIndex, unsigned int* output) const {
   bool previousFullByteOffset = true, found = false, findFieldIndex = fieldName != NULL && fieldIndex >= 0;
   PartType partType = data.isMaster() ? pt_masterData : pt_slaveData;
-  for (vector<SingleDataField*>::iterator it = m_fields.begin(); it < m_fields.end(); it++) {
-    SingleDataField* field = *it;
+  for (const auto field : m_fields) {
     if (field->getPartType() != partType) {
       continue;
     }
     if (!previousFullByteOffset && !field->hasFullByteOffset(false)) {
       offset--;
     }
-    result_t result = field->read(data, offset, output, fieldName, fieldIndex);
+    result_t result = field->read(data, offset, fieldName, fieldIndex, output);
     if (result < RESULT_OK) {
       return result;
     }
@@ -908,7 +973,7 @@ result_t DataFieldSet::read(SymbolString& data, size_t offset,
     if (result != RESULT_EMPTY) {
       found = true;
     }
-    if (findFieldIndex && fieldName == field->getName()) {
+    if (findFieldIndex && fieldName == field->getName(-1)) {
       if (fieldIndex == 0) {
         if (!found) {
           return RESULT_ERR_NOTFOUND;
@@ -926,16 +991,15 @@ result_t DataFieldSet::read(SymbolString& data, size_t offset,
   return RESULT_OK;
 }
 
-result_t DataFieldSet::read(SymbolString& data, size_t offset,
-    ostringstream& output, OutputFormat outputFormat, ssize_t outputIndex,
-    bool leadingSeparator, const char* fieldName, ssize_t fieldIndex) {
+result_t DataFieldSet::read(const SymbolString& data, size_t offset,
+    bool leadingSeparator, const char* fieldName, ssize_t fieldIndex,
+    OutputFormat outputFormat, ssize_t outputIndex, ostream* output) const {
   bool previousFullByteOffset = true, found = false, findFieldIndex = fieldName != NULL && fieldIndex >= 0;
   if (outputIndex < 0 && (!m_uniqueNames || ((outputFormat & OF_JSON) && !(outputFormat & OF_NAMES)))) {
     outputIndex = 0;
   }
   PartType partType = data.isMaster() ? pt_masterData : pt_slaveData;
-  for (vector<SingleDataField*>::iterator it = m_fields.begin(); it < m_fields.end(); it++) {
-    SingleDataField* field = *it;
+  for (const auto field : m_fields) {
     if (field->getPartType() != partType) {
       if (outputIndex >= 0 && !field->isIgnored()) {
         outputIndex++;
@@ -945,8 +1009,8 @@ result_t DataFieldSet::read(SymbolString& data, size_t offset,
     if (!previousFullByteOffset && !field->hasFullByteOffset(false)) {
       offset--;
     }
-    result_t result = field->read(data, offset, output, outputFormat, outputIndex, leadingSeparator,
-        fieldName, fieldIndex);
+    result_t result = field->read(data, offset, leadingSeparator, fieldName, fieldIndex,
+        outputFormat, outputIndex, output);
     if (result < RESULT_OK) {
       return result;
     }
@@ -956,7 +1020,7 @@ result_t DataFieldSet::read(SymbolString& data, size_t offset,
       found = true;
       leadingSeparator = true;
     }
-    if (findFieldIndex && fieldName == field->getName()) {
+    if (findFieldIndex && fieldName == field->getName(-1)) {
       if (fieldIndex == 0) {
         if (!found) {
           return RESULT_ERR_NOTFOUND;
@@ -973,25 +1037,16 @@ result_t DataFieldSet::read(SymbolString& data, size_t offset,
   if (!found) {
     return RESULT_EMPTY;
   }
-  if (!(outputFormat & OF_SHORT) && (outputFormat & OF_COMMENTS) && m_comment.length() > 0) {
-    if (outputFormat & OF_JSON) {
-      output << ",\"comment\": \"" << m_comment << '"';
-    } else {
-      output << " [" << m_comment << "]";
-    }
-  }
-
   return RESULT_OK;
 }
 
-result_t DataFieldSet::write(istringstream& input, SymbolString& data,
-    size_t offset, char separator, size_t* length) {
+result_t DataFieldSet::write(char separator, size_t offset, istringstream* input,
+    SymbolString* data, size_t* usedLength) const {
   string token;
-  PartType partType = data.isMaster() ? pt_masterData : pt_slaveData;
+  PartType partType = data->isMaster() ? pt_masterData : pt_slaveData;
   bool previousFullByteOffset = true;
   size_t baseOffset = offset;
-  for (vector<SingleDataField*>::iterator it = m_fields.begin(); it < m_fields.end(); it++) {
-    SingleDataField* field = *it;
+  for (const auto field : m_fields) {
     if (field->getPartType() != partType) {
       continue;
     }
@@ -1003,13 +1058,13 @@ result_t DataFieldSet::write(istringstream& input, SymbolString& data,
     if (m_fields.size() > 1) {
       if (field->isIgnored()) {
         token.clear();
-      } else if (!getline(input, token, separator)) {
+      } else if (!getline(*input, token, separator)) {
         token.clear();
       }
       istringstream single(token);
-      result = (*it)->write(single, data, offset, separator, &fieldLength);
+      result = field->write(separator, offset, &single, data, &fieldLength);
     } else {
-      result = (*it)->write(input, data, offset, separator, &fieldLength);
+      result = field->write(separator, offset, input, data, &fieldLength);
     }
     if (result != RESULT_OK) {
       return result;
@@ -1018,33 +1073,33 @@ result_t DataFieldSet::write(istringstream& input, SymbolString& data,
     previousFullByteOffset = field->hasFullByteOffset(true);
   }
 
-  if (length != NULL) {
-    *length = offset-baseOffset;
+  if (usedLength != NULL) {
+    *usedLength = offset-baseOffset;
   }
   return RESULT_OK;
 }
 
 
-DataFieldTemplates::DataFieldTemplates(DataFieldTemplates& other)
+DataFieldTemplates::DataFieldTemplates(const DataFieldTemplates& other)
     : MappedFileReader::MappedFileReader(false) {
-  for (map<string, DataField*>::iterator it = other.m_fieldsByName.begin(); it != other.m_fieldsByName.end(); it++) {
-    m_fieldsByName[it->first] = it->second->clone();
+  for (const auto it : other.m_fieldsByName) {
+    m_fieldsByName[it.first] = it.second->clone();
   }
 }
 
 void DataFieldTemplates::clear() {
-  for (map<string, DataField*>::iterator it = m_fieldsByName.begin(); it != m_fieldsByName.end(); it++) {
-    delete it->second;
-    it->second = NULL;
+  for (auto it : m_fieldsByName) {
+    delete it.second;
+    it.second = NULL;
   }
   m_fieldsByName.clear();
 }
 
-result_t DataFieldTemplates::add(DataField* field, string name, bool replace) {
+result_t DataFieldTemplates::add(const DataField* field, string name, bool replace) {
   if (name.length() == 0) {
-    name = field->getName();
+    name = field->getName(-1);
   }
-  map<string, DataField*>::iterator it = m_fieldsByName.find(name);
+  const auto it = m_fieldsByName.find(name);
   if (it != m_fieldsByName.end()) {
     if (!replace) {
       return RESULT_ERR_DUPLICATE_NAME;  // duplicate key
@@ -1058,84 +1113,96 @@ result_t DataFieldTemplates::add(DataField* field, string name, bool replace) {
   return RESULT_OK;
 }
 
-result_t DataFieldTemplates::getFieldMap(vector<string>& row, string& errorDescription) {
+result_t DataFieldTemplates::getFieldMap(const string& preferLanguage, vector<string>* row, string* errorDescription)
+    const {
   // name[:usename],basetype[:len]|template[:usename][,[divisor|values][,[unit][,[comment]]]]
-  if (row.empty()) {
+  if (row->empty()) {
     // default map does not include separate field name
-    row.push_back("name");
-    for (size_t cnt = 0; cnt < 2; cnt++) {
-      bool first = true;
-      for (size_t fieldId = DATAFIELD_RANGE_MIN; fieldId <= DATAFIELD_RANGE_MAX; fieldId++) {
-        if (cnt == 0 && fieldId == DATAFIELD_NAME) {
-          continue;
-        }
-        if (fieldId == DATAFIELD_PART) {  // not included in default map
-          continue;
-        }
-        // subsequent fields start with field name
-        if (first) {
-          first = false;
-          row.push_back("*"+getDataFieldName(fieldId));
-        } else {
-          row.push_back(getDataFieldName(fieldId));
-        }
-      }
+    for (const auto& col : defaultTemplateFieldMap) {
+      row->push_back(col);
     }
     return RESULT_OK;
   }
   bool inDataFields = false;
-  map<string, string> seen;
-  for (auto &name : row) {
-    tolower(name);
-    size_t fieldId;
-    if (inDataFields) {
-      fieldId = getDataFieldId(name);
-      if (fieldId == UINT_MAX) {
-        errorDescription = "unknown field " + name;
-        return RESULT_ERR_INVALID_ARG;
-      }
-      if (seen.find(name) != seen.end()) {
-        if (seen.find("type") == seen.end()) {
-          return RESULT_ERR_EOF;  // require at least type
-        }
-        seen.clear();
-        name = "*" + getDataFieldName(fieldId);  // data field repetition
-      } else {
-        name = getDataFieldName(fieldId);
-      }
-    } else if (name == "name") {
-      if (seen.find(name) != seen.end()) {
-        errorDescription = "duplicate field " + name;
-        return RESULT_ERR_INVALID_ARG;
-      }
-      name = "name";
+  map<string, size_t> seen;
+  for (size_t col = 0; col < row->size(); col++) {
+    string &name = (*row)[col];
+    string lowerName = name;
+    tolower(&lowerName);
+    trim(&lowerName);
+    bool toDataFields;
+    if (!lowerName.empty() && lowerName[0] == '*') {
+      lowerName.erase(0, 1);
+      toDataFields = true;
     } else {
-      fieldId = getDataFieldId(name);
-      if (fieldId == UINT_MAX) {
-        errorDescription = "unknown field " + name;
+      toDataFields = false;
+    }
+    if (lowerName.empty()) {
+      *errorDescription = "missing name in column " + AttributedItem::formatInt(col);
+      return RESULT_ERR_INVALID_ARG;
+    }
+    if (toDataFields) {
+      if (inDataFields) {
+        if (seen.find("type") == seen.end()) {
+          *errorDescription = "missing field type";
+          return RESULT_ERR_EOF;  // require at least name and type
+        }
+      } else {
+        if (seen.find("name") == seen.end()) {
+          *errorDescription = "missing template name";
+          return RESULT_ERR_EOF;  // require at least name
+        }
+        if (seen.size() > 1) {
+          *errorDescription = "extra template columns";
+          return RESULT_ERR_INVALID_ARG;
+        }
+        inDataFields = true;
+      }
+      seen.clear();
+    }
+    size_t langPos = lowerName.find_last_of('.');
+    if (langPos != string::npos && langPos > 0 && langPos == lowerName.length()-3) {
+      string lang = lowerName.substr(langPos+1);
+      lowerName.erase(langPos);
+      map<string, size_t>::iterator previous = seen.find(lowerName);
+      if (previous != seen.end()) {
+        if (lang != preferLanguage) {
+          // skip this column
+          name = SKIP_COLUMN;
+          continue;
+        }
+        // replace previous
+        (*row)[previous->second] = SKIP_COLUMN;
+        seen.erase(lowerName);
+      }
+    } else {
+      map<string, size_t>::iterator previous = seen.find(lowerName);
+      if (seen.find(lowerName) != seen.end()) {
+        if (inDataFields) {
+          *errorDescription = "duplicate field " + name;
+        } else {
+          *errorDescription = "duplicate template " + name;
+        }
         return RESULT_ERR_INVALID_ARG;
       }
-      if (seen.find("name") == seen.end()) {
-        return RESULT_ERR_EOF;  // require at least name
-      }
-      inDataFields = true;
-      seen.clear();
-      name = "*" + getDataFieldName(fieldId);
     }
-    seen[name] = name;
+    name = toDataFields ? "*"+lowerName : lowerName;
+    seen[lowerName] = col;
   }
   if (!inDataFields) {
+    *errorDescription = "missing template fields";
     return RESULT_ERR_EOF;  // require at least one field
   }
-  if (seen.find("name") == seen.end() || seen.find("type") == seen.end()) {
-    return RESULT_ERR_EOF;  // require at least name and type
+  if (seen.find("type") == seen.end()) {
+    *errorDescription = "missing field type";
+    return RESULT_ERR_EOF;  // require at least type
   }
   return RESULT_OK;
 }
 
-result_t DataFieldTemplates::addFromFile(map<string, string>& row, vector< map<string, string> >& subRows,
-    string& errorDescription, const string filename, unsigned int lineNo) {
-  string name = row["name"];  // required
+result_t DataFieldTemplates::addFromFile(const string& filename, unsigned int lineNo, map<string, string>* row,
+    vector< map<string, string> >* subRows, string* errorDescription) {
+  string name = (*row)["name"];  // required
   string firstFieldName;
   size_t colon = name.find(':');
   if (colon == string::npos) {
@@ -1144,17 +1211,20 @@ result_t DataFieldTemplates::addFromFile(map<string, string>& row, vector< map<s
     firstFieldName = name.substr(colon+1);
     name = name.substr(0, colon);
   }
-  DataField* field = NULL;
-  if (!subRows.empty() && subRows[0].find("name") == subRows[0].end()) {
-    subRows[0]["name"] = firstFieldName;
+  const DataField* field = NULL;
+  if (!subRows->empty()) {
+    map<string, string>::iterator it = (*subRows)[0].find("name");
+    if (it == (*subRows)[0].end() || it->second.empty()) {
+      (*subRows)[0]["name"] = firstFieldName;
+    }
   }
-  result_t result = DataField::create(subRows, errorDescription, this, field, false, true, false);
+  result_t result = DataField::create(false, true, false, MAX_POS, this, subRows, errorDescription, &field);
   if (result != RESULT_OK) {
     return result;
   }
   result = add(field, name, true);
   if (result == RESULT_ERR_DUPLICATE_NAME) {
-    errorDescription = name;
+    *errorDescription = name;
   }
   if (result != RESULT_OK) {
     delete field;
@@ -1162,8 +1232,8 @@ result_t DataFieldTemplates::addFromFile(map<string, string>& row, vector< map<s
   return result;
 }
 
-DataField* DataFieldTemplates::get(const string name) {
-  map<string, DataField*>::const_iterator ref = m_fieldsByName.find(name);
+const DataField* DataFieldTemplates::get(const string& name) const {
+  const auto ref = m_fieldsByName.find(name);
   if (ref == m_fieldsByName.end()) {
     return NULL;
   }
