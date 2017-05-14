@@ -163,7 +163,7 @@ int main() {
   vector<SlaveSymbolString*> sstrs;
   mstrs.resize(1);
   sstrs.resize(1);
-  for (size_t i = 0; i < sizeof(checks) / sizeof(checks[0]); i++) {
+  for (unsigned int i = 0; i < sizeof(checks) / sizeof(checks[0]); i++) {
     string check[5] = checks[i];
     string inputStr = check[1];
     string flags = check[4];
@@ -317,7 +317,8 @@ int main() {
       if (onlyMap) {
         continue;
       }
-      deque<Message*> msgs = messages->findAll("", "", "*", false, true, true, true, true, false);
+      deque<Message*> msgs;
+      messages->findAll("", "", "*", false, true, true, true, true, false, 0, 0, &msgs);
       if (msgs.empty()) {
         message = NULL;
         cout << "\"" << check[0] << "\": create error: message not found" << endl;
