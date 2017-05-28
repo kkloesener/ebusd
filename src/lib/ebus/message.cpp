@@ -758,7 +758,7 @@ result_t Message::decodeLastData(bool master, bool leadingSeparator, const char*
 
 result_t Message::decodeLastData(bool leadingSeparator, const char* fieldName,
     ssize_t fieldIndex, const OutputFormat outputFormat, ostream* output) const {
-  ssize_t startPos = output->tellp();
+  ostream::pos_type startPos = output->tellp();
   result_t result = m_data->read(m_lastMasterData, getIdLength(), leadingSeparator, fieldName, fieldIndex,
       outputFormat, -1, output);
   if (result < RESULT_OK) {
@@ -927,12 +927,22 @@ void Message::dumpField(const string& fieldName, bool withConditions, ostream* o
   dumpAttribute(false, fieldName, output);
 }
 
-void Message::decode(bool leadingSeparator, OutputFormat outputFormat, ostringstream* output) const {
+void Message::decode(bool leadingSeparator, bool appendDirection, OutputFormat outputFormat, ostringstream* output)
+    const {
   if (leadingSeparator) {
     *output << ",";
   }
-  *output << "\n  \"" << getName() << "\": {"  // TODO include read/write/passive for overlapping names
-          << "\n   \"lastup\": " << setw(0) << dec << static_cast<unsigned>(getLastUpdateTime());
+  *output << "\n  \"" << getName();
+  if (appendDirection) {
+    if (isPassive()) {
+      *output << "-u";
+    } else if (isWrite()) {
+      *output << "-w";
+    }
+  }
+  *output << "\": {"
+          << "\n   \"name\": \"" << getName() << "\""
+          << ",\n   \"lastup\": " << setw(0) << dec << static_cast<unsigned>(getLastUpdateTime());
   if (getLastUpdateTime() != 0) {
     *output << ",\n   \"zz\": \"" << setfill('0') << setw(2) << hex << static_cast<unsigned>(getDstAddress()) << "\"";
     appendAttributes(OF_JSON | outputFormat, output);
