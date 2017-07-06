@@ -1615,8 +1615,18 @@ result_t MainLoop::executeHelp(ostringstream* ostream) {
   return RESULT_OK;
 }
 
+/**
+ * Parse a boolean query value.
+ * @param value the query value.
+ * @return the parsed boolean.
+ */
+bool parseBoolQuery(const string& value) {
+  return value.length() == 0 || value == "1" || value == "true";
+}
+
 result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostringstream* ostream) {
-  bool numeric = false, valueName = false, required = false, full = false, withWrite = false;
+  bool numeric = false, valueName = false, required = false, full = false, withWrite = false, raw = false;
+  bool withDefinition = false;
   OutputFormat verbosity = OF_NAMES;
   size_t argPos = 1;
   string uri = args[argPos++];
@@ -1654,25 +1664,29 @@ result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostri
         } else if (qname == "poll") {
           pollPriority = (size_t)parseInt(value.c_str(), 10, 1, 9, &ret);
         } else if (qname == "exact") {
-          exact = value.length() == 0 || value == "1" || value == "true";
+          exact = parseBoolQuery(value);
         } else if (qname == "verbose") {
-          if (value.length() == 0 || value == "1" || value == "true") {
+          if (parseBoolQuery(value)) {
             verbosity |= OF_UNITS | OF_COMMENTS;
           }
         } else if (qname == "indexed") {
-          if (value.length() == 0 || value == "1" || value == "true") {
+          if (parseBoolQuery(value)) {
             verbosity &= ~OF_NAMES;
           }
         } else if (qname == "numeric") {
-          numeric = value.length() == 0 || value == "1" || value == "true";
+          numeric = parseBoolQuery(value);
         } else if (qname == "valuename") {
-          valueName = value.length() == 0 || value == "1" || value == "true";
+          valueName = parseBoolQuery(value);
         } else if (qname == "full") {
-          full = value.length() == 0 || value == "1" || value == "true";
+          full = parseBoolQuery(value);
         } else if (qname == "required") {
-          required = value.length() == 0 || value == "1" || value == "true";
+          required = parseBoolQuery(value);
         } else if (qname == "write") {
-          withWrite = value.length() == 0 || value == "1" || value == "true";
+          withWrite = parseBoolQuery(value);
+        } else if (qname == "raw") {
+          raw = parseBoolQuery(value);
+        } else if (qname == "def") {
+          withDefinition = parseBoolQuery(value);
         } else if (qname == "user") {
           user = value;
         } else if (qname == "secret") {
@@ -1692,7 +1706,8 @@ result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostri
     time_t maxLastUp = 0;
     if (ret == RESULT_OK) {
       bool first = true;
-      verbosity |= (valueName ? OF_VALUENAME : numeric ? OF_NUMERIC : 0) | OF_JSON | (full ? OF_ALL_ATTRS : 0);
+      verbosity |= (valueName ? OF_VALUENAME : numeric ? OF_NUMERIC : 0) | OF_JSON | (full ? OF_ALL_ATTRS : 0)
+                   | (withDefinition ? OF_DEFINTION : 0);
       deque<Message*> messages;
       m_messages->findAll(circuit, name, getUserLevels(user), exact, true, withWrite, true, true, true, 0, 0,
           &messages);
@@ -1723,34 +1738,36 @@ result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostri
             maxLastUp = lastup;
           }
         }
-        if (message->getCircuit() != lastCircuit) {
+        bool sameCircuit = message->getCircuit() == lastCircuit;
+        if (!sameCircuit) {
           if (lastCircuit.length() > 0) {
-            *ostream << "\n },";
+            *ostream << "\n  }\n },";
           }
           lastCircuit = message->getCircuit();
           *ostream << "\n \"" << lastCircuit << "\": {";
-          first = true;
           if (full && m_messages->decodeCircuit(lastCircuit, verbosity, ostream)) {  // add circuit specific values
-            first = false;
+            *ostream << ",";
           }
+          *ostream << "\n  \"messages\": {";
           lastName = "";
+          first = true;
         }
         name = message->getName();
-        bool same = name == lastName;
-        if (!same && !lastName.empty() && it+1 != messages.end()) {
+        bool same = sameCircuit && name == lastName;
+        if (!same && it+1 != messages.end()) {
           Message* next = *(it+1);
           same = next->getCircuit() == lastCircuit && next->getName() == name;
         }
-        message->decode(!first, same, verbosity, ostream);
+        message->decodeJson(!first, same, raw, verbosity, ostream);
         lastName = name;
         first = false;
       }
 
       if (lastCircuit.length() > 0) {
-        *ostream << "\n },";
+        *ostream << "\n  }\n },";
       }
       *ostream << "\n \"global\": {"
-               << "\n  \"version\": \"" << PACKAGE_VERSION "." REVISION "\"";
+               << "\n  \"version\": \"" << PACKAGE_VERSION "." REVISION "\"" << setw(0) << dec;
       if (!m_updateCheck.empty()) {
         *ostream << ",\n  \"updatecheck\": \"" << m_updateCheck << "\"";
       }
@@ -1766,10 +1783,13 @@ result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostri
         *ostream << ",\n  \"symbolrate\": " << m_busHandler->getSymbolRate()
                  << ",\n  \"maxsymbolrate\": " << m_busHandler->getMaxSymbolRate();
       }
+      if (!m_device->isReadOnly()) {
+        *ostream << ",\n  \"qq\": " << static_cast<unsigned>(m_address);
+      }
       *ostream << ",\n  \"reconnects\": " << m_reconnectCount
                << ",\n  \"masters\": " << m_busHandler->getMasterCount()
                << ",\n  \"messages\": " << m_messages->size()
-               << ",\n  \"lastup\": " << setw(0) << dec << static_cast<unsigned>(maxLastUp)
+               << ",\n  \"lastup\": " << static_cast<unsigned>(maxLastUp)
                << "\n }"
                << "\n}";
       type = 6;
@@ -1802,6 +1822,8 @@ result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostri
         type = 5;
       } else if (ext == "json") {
         type = 6;
+      } else if (ext == "yaml") {
+        type = 7;
       }
     }
     if (type < 0) {
@@ -1847,6 +1869,9 @@ result_t MainLoop::formatHttpResult(result_t ret, int type, ostringstream* ostre
       break;
     case 6:
       *ostream << "application/json;charset=utf-8";
+      break;
+    case 7:
+      *ostream << "application/yaml;charset=utf-8";
       break;
     default:
       *ostream << "text/html";

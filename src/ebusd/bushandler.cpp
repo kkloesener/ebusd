@@ -234,7 +234,7 @@ bool decodeType(const DataType* type, const SymbolString& input, size_t length,
       first = false;
       *output << endl << " ";
       ostringstream::pos_type cnt = output->tellp();
-      type->dump(length, false, output);
+      type->dump(false, length, false, output);
       cnt = output->tellp() - cnt;
       while (cnt < 5) {
         *output << " ";
@@ -434,7 +434,7 @@ result_t BusHandler::handleSymbol() {
   // check if another symbol has to be sent and determine timeout for receive
   switch (m_state) {
   case bs_noSignal:
-    timeout = m_generateSynInterval > 0 ? m_generateSynInterval : SIGNAL_TIMEOUT;
+    timeout = m_generateSynInterval > 0 ? m_generateSynInterval+m_transferLatency : SIGNAL_TIMEOUT;
     break;
 
   case bs_skip:
@@ -579,7 +579,7 @@ result_t BusHandler::handleSymbol() {
     result = m_device->send(SYN);
     if (result == RESULT_OK) {
       recvSymbol = ESC;
-      result = m_device->recv(SEND_TIMEOUT, &recvSymbol);
+      result = m_device->recv(SEND_TIMEOUT+m_transferLatency, &recvSymbol);
       if (result == RESULT_ERR_TIMEOUT) {
         return setState(bs_noSignal, result);
       }
@@ -1480,7 +1480,7 @@ result_t BusHandler::scanAndWait(symbol_t dstAddress, bool loadScanConfig, bool 
     bool timedOut = result == RESULT_ERR_TIMEOUT;
     if (timedOut || result == RESULT_OK) {
       result = loadScanConfigFile(m_messages, dstAddress, false, &file);  // try to load even if one message timed out
-      if (timedOut && result == RESULT_EMPTY) {
+      if (timedOut && result != RESULT_OK) {
         result = RESULT_ERR_TIMEOUT;  // back to previous result
       }
     }
@@ -1491,7 +1491,7 @@ result_t BusHandler::scanAndWait(symbol_t dstAddress, bool loadScanConfig, bool 
         // additional scan messages now available
         scanAndWait(dstAddress, false, false);
       }
-    } else {
+    } else if (result != RESULT_ERR_NOTFOUND) {
       setScanConfigLoaded(dstAddress, "");
     }
   }

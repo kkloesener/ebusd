@@ -472,13 +472,13 @@ int main() {
     {"x,,bi3:2,0=off;1=on", "1", "10feffff0108", "00", "n"},
     {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "x=on ja/nein [Wahrheitswert]", "10feffff0108", "00", "vvv"},
     {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "x=1 ja/nein [Wahrheitswert]", "10feffff0108", "00", "vvvn"},
-    {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "\n    \"x\": {\"value\": \"on\"}", "10feffff0108", "00", "vj"},
-    {",,bi3:2,0=off;1=on,ja/nein,Wahrheitswert",  "\n    \"0\": {\"name\": \"\", \"value\": \"on\"}", "10feffff0108", "00", "vj"},
-    {",,bi3:2,0=off;1=on,ja/nein,Wahrheitswert",  "\n    \"0\": {\"name\": \"\", \"value\": \"on\"}", "10feffff0108", "00", "j"},
-    {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "\n    \"x\": {\"value\": \"on\", \"unit\": \"ja/nein\", \"comment\": \"Wahrheitswert\"}", "10feffff0108", "00", "vvvj"},
-    {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "\n    \"x\": {\"value\": 1}", "10feffff0108", "00", "vnj"},
-    {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "\n    \"x\": {\"value\": 1, \"unit\": \"ja/nein\", \"comment\": \"Wahrheitswert\"}", "10feffff0108", "00", "vvvnj"},
-    {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "\n    \"0\": {\"name\": \"x\", \"value\": 1}", "10feffff0108", "00", "nj"},
+    {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "\n     \"x\": {\"value\": \"on\"}", "10feffff0108", "00", "vj"},
+    {",,bi3:2,0=off;1=on,ja/nein,Wahrheitswert",  "\n     \"0\": {\"name\": \"\", \"value\": \"on\"}", "10feffff0108", "00", "vj"},
+    {",,bi3:2,0=off;1=on,ja/nein,Wahrheitswert",  "\n     \"0\": {\"name\": \"\", \"value\": \"on\"}", "10feffff0108", "00", "j"},
+    {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "\n     \"x\": {\"value\": \"on\", \"unit\": \"ja/nein\", \"comment\": \"Wahrheitswert\"}", "10feffff0108", "00", "vvvj"},
+    {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "\n     \"x\": {\"value\": 1}", "10feffff0108", "00", "vnj"},
+    {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "\n     \"x\": {\"value\": 1, \"unit\": \"ja/nein\", \"comment\": \"Wahrheitswert\"}", "10feffff0108", "00", "vvvnj"},
+    {"x,,bi3:2,0=off;1=on,ja/nein,Wahrheitswert", "\n     \"0\": {\"name\": \"x\", \"value\": 1}", "10feffff0108", "00", "nj"},
     {"x,,uch,1=test;2=high;3=off;0x10=on", "on", "10feffff0110", "00", ""},
     {"x,s,uch", "3", "1050ffff00", "0103", ""},
     {"x,,d2b,,°C,Aussentemperatur", "x=18.004 °C [Aussentemperatur]", "10fe0700090112", "00", "vvv"},
@@ -502,6 +502,10 @@ int main() {
     {"x,,temp;HEX:2", "18.004;13 14", "10fe07000401121314", "00", ""},  // reference to template and base type
     {"x,,temp;HEX:2", "temp=18.004;=13 14", "10fe07000401121314", "00", "v"},  // reference to template and base type
     {"x,,temp:degrees;HEX:2", "degrees=18.004;=13 14", "10fe07000401121314", "00", "v"},  // reference to template and base type
+    {"x,,uch;UCH;IGN;UCH", "41", "1008ffff00", "0426272829", "wi2"},
+    {"x,,uch,,,,x,,uch,,,,x,,ign,,,,x,,uch,,,,", "41", "1008ffff00", "0426272829", "wi2"},
+    {"x,,uch,,,,y,,uch,,,,x,,ign,,,,x,,uch,,,,", "41", "1008ffff00", "0426272829", "wIi1"},
+    {"x,,uch,,,,y,,uch,,,,z,,ign,,,,x,,uch,,,,", "41", "1008ffff00", "0426272829", "wIi1"},
   };
   DataFieldTemplates* templates = new DataFieldTemplates();
   unsigned int lineNo = 0;
@@ -535,6 +539,11 @@ int main() {
     bool failedReadMatch = flags.find('R') != string::npos;
     bool failedWrite = flags.find('w') != string::npos;
     bool failedWriteMatch = flags.find('W') != string::npos;
+    const char* findName = flags.find('I') == string::npos ? NULL : "x";
+    ssize_t findIndex = -1;
+    if (flags.find('i') != string::npos) {
+      findIndex = parseSignedInt(flags.substr(flags.find('i')+1).c_str(), 10, 0, 9, &result);
+    }
     OutputFormat verbosity = 0;
     if (flags.find("v") != string::npos) {
       verbosity |= OF_NAMES;
@@ -572,7 +581,7 @@ int main() {
     dummystr.str("#");
     result = reader.readLineFromStream(__FILE__, false, &dummystr, &lineNo, &row, &errorDescription, NULL, NULL);
     if (result != RESULT_OK) {
-      cout << "\"" << check[0] << "\": reader header error: " << getResultCode(result) << ", " << errorDescription
+      cout << "\"" << check[0] << "\": read header error: " << getResultCode(result) << ", " << errorDescription
           << endl;
       error = true;
       continue;
@@ -600,7 +609,7 @@ int main() {
       continue;
     }
     cout << "\"" << check[0] << "\"=\"";
-    fields->dump(&cout);
+    fields->dump(false, false, &cout);
     cout << "\": create OK" << endl;
 
     ostringstream output;
@@ -616,9 +625,9 @@ int main() {
       cout << "  parse \"" << sstr.getStr().substr(0, 2) << "\" error: " << getResultCode(result) << endl;
       error = true;
     }
-    result = fields->read(mstr, 0, false, NULL, -1, verbosity|(numeric?OF_NUMERIC:0), -1, &output);
+    result = fields->read(mstr, 0, false, findName, findIndex, verbosity|(numeric?OF_NUMERIC:0), -1, &output);
     if (result >= RESULT_OK) {
-      result = fields->read(sstr, 0, !output.str().empty(), NULL, -1, verbosity|(numeric?OF_NUMERIC:0), -1, &output);
+      result = fields->read(sstr, 0, !output.str().empty(), findName, findIndex, verbosity|(numeric?OF_NUMERIC:0), -1, &output);
     }
     if (failedRead) {
       if (result >= RESULT_OK) {

@@ -24,6 +24,12 @@
 * corrected grouping of JSON output by circuit
 * corrected address conflict detection when in answer mode
 * fixed potential memory leaks and misused iterator
+* corrected duplicates when using "--dumpconfig"
+* corrected unclean shutdown
+* also use transfer latency for SYN generator
+* fix for timeout message when decoding scan result failed
+* corrected flushing in dump and raw files
+* corrected unique keys in JSON port
 
 ## Features
 * added support for MQTT handling via libmosquitto (will be compiled in when library is available)
@@ -33,9 +39,9 @@
 * added another log facility "other"
 * added support for using cmake in addition to autoconf
 * added Docker support
-* allow invalid (non-BCD) coded SW and HW fields when looking for scan config file
+* allow invalid SW and HW fields and remove all but alpha-numeric chars and underscore from ident when looking for scan config file
 * added "auth" command and user/access information to "info" command output
-* added user and secret arguments to HTTP port
+* added user and secret arguments to HTTP/JSON port and added options to retrieve message definition and raw messages
 * use ACL in read/write/find/scan commands
 * added -a and -l options to "find" command
 * added possibility to define different log level per area on command line and with "log" command
@@ -44,13 +50,13 @@
 * enhanced scan for individual slave
 * wait for broadcast scan answers before doing individual scans
 * enhanced SymbolString to be aware of master/slave and get rid of CRC (instead calculate while sending/receiving)
-* allow unusually formatted MQTT topics
 * allow TTQ/TTH types to use less than 8 bits
 * added support for optional user-defined columns to config files
 * added circuit-level attributes to config files for use in JSON
 * added -N option to "read" command
 * added "--inject" option to inject remaining arguments as already seen messages
 * use scans initiated by other participants and allow "--readonly" with "--scanconfig[=none]"
+* set the serial device to low latency mode to fix huge latency found on recent kernel versions
 
 
 # 2.4 (2016-12-17)

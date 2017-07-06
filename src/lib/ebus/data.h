@@ -50,14 +50,6 @@ namespace ebusd {
  */
 
 
-/**
- * Get the normalized data field name for the given name.
- * @param name the input field name.
- * @param supportsLanguage set to true when the field supports multiple language.
- * @return the normalized data field name, or empty if unknown.
- */
-string getDataFieldName(const string& name, bool* supportsLanguage);
-
 class DataFieldTemplates;
 class SingleDataField;
 
@@ -115,11 +107,11 @@ class AttributedItem {
    * @param prependFieldSeparator whether to start with a @a FIELD_SEPARATOR.
    * @param name the name of the attribute.
    * @param value the value of the attribute.
-   * @param asString true to force writing as string, false to detect the type from the value.
+   * @param forceString true to force writing as string, false to detect the type from the value.
    * @param output the @a ostream to append to.
    */
   static void appendJson(bool prependFieldSeparator, const string& name, const string& value,
-      bool asString, ostream* output);
+      bool forceString, ostream* output);
 
   /**
    * Merge this instance's additional named attributes into the specified attributes.
@@ -130,10 +122,11 @@ class AttributedItem {
   /**
    * Dump the attribute optionally embedded in @a TEXT_SEPARATOR to the output.
    * @param prependFieldSeparator whether to start with a @a FIELD_SEPARATOR.
+   * @param asJson whether to output in JSON format.
    * @param name the name of the attribute to dump.
    * @param output the @a ostream to dump to.
    */
-  void dumpAttribute(bool prependFieldSeparator, const string& name, ostream* output) const;
+  void dumpAttribute(bool prependFieldSeparator, bool asJson, const string& name, ostream* output) const;
 
   /**
    * Append the attribute value to the output.
@@ -257,17 +250,25 @@ class DataField : public AttributedItem {
       vector<const SingleDataField*>* fields) const = 0;
 
   /**
-   * Get the specified field name.
-   * @param fieldIndex the index of the field, or -1 for this.
-   * @return the field name, or the index as string if not unique or not available.
+   * Get the field count (excluding ignored fields).
+   * @return the field count (excluding ignored fields).
    */
-  virtual string getName(ssize_t fieldIndex) const { return m_name; }
+  virtual size_t getCount() const = 0;
+
+  /**
+   * Get the specified field name.
+   * @param fieldIndex the index of the field (excluding ignored fields), or -1 for this.
+   * @return the field name, or the index as string is not unique or not available.
+   */
+  virtual string getName(ssize_t fieldIndex) const = 0;
 
   /**
    * Dump the field settings to the output.
+   * @param prependFieldSeparator whether to start with a @a FIELD_SEPARATOR.
+   * @param asJson whether to output in JSON format.
    * @param output the @a ostream to dump to.
    */
-  virtual void dump(ostream* output) const = 0;
+  virtual void dump(bool prependFieldSeparator, bool asJson, ostream* output) const = 0;
 
   /**
    * Return whether the field is available.
@@ -282,7 +283,7 @@ class DataField : public AttributedItem {
    * @param data the data @a SymbolString for reading binary data.
    * @param offset the additional offset to add for reading binary data.
    * @param fieldName the name of the field to read, or NULL for the first field.
-   * @param fieldIndex the optional index of the named field, or -1.
+   * @param fieldIndex the optional index of the field (either named or overall), or -1.
    * @param output the variable in which to store the numeric value.
    * @return @a RESULT_OK on success,
    * or @a RESULT_EMPTY if the field was skipped (either if the partType does
@@ -298,7 +299,7 @@ class DataField : public AttributedItem {
    * @param offset the additional offset to add for reading binary data.
    * @param leadingSeparator whether to prepend a separator before the formatted value.
    * @param fieldName the optional name of a field to limit the output to.
-   * @param fieldIndex the optional index of the named field to limit the output to, or -1.
+   * @param fieldIndex the optional index of the field to limit the output to (either named or overall), or -1.
    * @param outputFormat the @a OutputFormat options to use.
    * @param outputIndex the optional index of the field when using an indexed output format, or -1.
    * @param output the @a ostream to append the formatted value to.
@@ -397,20 +398,31 @@ class SingleDataField : public DataField {
    */
   bool hasFullByteOffset(bool after) const;
 
-  /**
-   * Dump the common prefix field settings to the output (name and part type).
-   * @param output the @a ostream to dump to.
-   */
-  void dumpPrefix(ostream* output) const;
-
-  /**
-   * Dump the common suffix field settings to the output (optiona unit and comment).
-   * @param output the @a ostream to dump to.
-   */
-  void dumpSuffix(ostream* output) const;
+  // @copydoc
+  size_t getCount() const override { return isIgnored() ? 0 : 1; }
 
   // @copydoc
-  void dump(ostream* output) const override;
+  virtual string getName(ssize_t fieldIndex) const {
+    return isIgnored() || fieldIndex > 0 ? "" : m_name;
+  }
+
+  /**
+   * Dump the common prefix field settings to the output (name and part type).
+   * @param prependFieldSeparator whether to start with a @a FIELD_SEPARATOR.
+   * @param asJson whether to output in JSON format.
+   * @param output the @a ostream to dump to.
+   */
+  void dumpPrefix(bool prependFieldSeparator, bool asJson, ostream* output) const;
+
+  /**
+   * Dump the common suffix field settings to the output (optional unit and comment).
+   * @param asJson whether to output in JSON format.
+   * @param output the @a ostream to dump to.
+   */
+  void dumpSuffix(bool asJson, ostream* output) const;
+
+  // @copydoc
+  void dump(bool prependFieldSeparator, bool asJson, ostream* output) const override;
 
   // @copydoc
   bool hasField(const char* fieldName, bool numeric) const override;
@@ -496,7 +508,7 @@ class ValueListDataField : public SingleDataField {
       vector<const SingleDataField*>* fields) const override;
 
   // @copydoc
-  void dump(ostream* output) const override;
+  void dump(bool prependFieldSeparator, bool asJson, ostream* output) const override;
 
 
  protected:
@@ -549,7 +561,7 @@ class ConstantDataField : public SingleDataField {
       vector<const SingleDataField*>* fields) const override;
 
   // @copydoc
-  void dump(ostream* output) const override;
+  void dump(bool prependFieldSeparator, bool asJson, ostream* output) const override;
 
 
  protected:
@@ -596,9 +608,11 @@ class DataFieldSet : public DataField {
   DataFieldSet(const string& name, const vector<const SingleDataField*> fields)
     : DataField(name), m_fields(fields) {
     bool uniqueNames = true;
+    size_t ignoredCount = 0;
     map<string, string> names;
     for (auto field : fields) {
       if (field->isIgnored()) {
+        ignoredCount++;
         continue;
       }
       string name = field->getName(-1);
@@ -609,6 +623,7 @@ class DataFieldSet : public DataField {
       names[name] = name;
     }
     m_uniqueNames = uniqueNames;
+    m_ignoredCount = ignoredCount;
   }
 
   /**
@@ -621,6 +636,9 @@ class DataFieldSet : public DataField {
 
   // @copydoc
   size_t getLength(PartType partType, size_t maxLength) const override;
+
+  // @copydoc
+  size_t getCount() const override { return m_fields.size() - m_ignoredCount; }
 
   // @copydoc
   string getName(ssize_t fieldIndex) const override;
@@ -652,7 +670,7 @@ class DataFieldSet : public DataField {
   bool hasField(const char* fieldName, bool numeric) const override;
 
   // @copydoc
-  void dump(ostream* output) const override;
+  void dump(bool prependFieldSeparator, bool asJson, ostream* output) const override;
 
   // @copydoc
   result_t read(const SymbolString& data, size_t offset,
@@ -677,6 +695,9 @@ class DataFieldSet : public DataField {
 
   /** whether all fields have a unique name. */
   bool m_uniqueNames;
+
+  /** the number of ignored fields. */
+  size_t m_ignoredCount;
 };
 
 

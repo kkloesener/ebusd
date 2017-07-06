@@ -268,11 +268,17 @@ class Message : public AttributedItem {
   static bool checkLevel(const string& level, const string& checkLevels);
 
   /**
-   * Get the specified field name.
-   * @param fieldIndex the index of the field.
-   * @return the field name, or the index as string if not unique or not available.
+   * Get the number of non-ignored fields.
+   * @return the number of non-ignored fields.
    */
-  virtual string getFieldName(ssize_t fieldIndex) const { return m_data->getName(fieldIndex); }
+  size_t getFieldCount() const { return m_data->getCount(); }
+
+  /**
+   * Get the specified field name.
+   * @param fieldIndex the index of the field (excluding ignored fields).
+   * @return the field name, or the index as string if not unique, or empty not available.
+   */
+  string getFieldName(ssize_t fieldIndex) const { return m_data->getName(fieldIndex); }
 
   /**
    * Get whether this is a write message.
@@ -456,10 +462,10 @@ class Message : public AttributedItem {
 
   /**
    * Decode the value from the last stored master or slave data.
-   * @param master true for deocding the master data, false for slave.
+   * @param master true for decoding the master data, false for slave.
    * @param leadingSeparator whether to prepend a separator before the formatted value.
    * @param fieldName the optional name of a field to limit the output to.
-   * @param fieldIndex the optional index of the named field to limit the output to, or -1.
+   * @param fieldIndex the optional index of the field to limit the output to (either named or overall), or -1.
    * @param outputFormat the @a OutputFormat options to use.
    * @param output the @a ostream to append the formatted value to.
    * @return @a RESULT_OK on success, or an error code.
@@ -471,7 +477,7 @@ class Message : public AttributedItem {
    * Decode the value from the last stored master and slave data.
    * @param leadingSeparator whether to prepend a separator before the formatted value.
    * @param fieldName the optional name of a field to limit the output to.
-   * @param fieldIndex the optional index of the named field to limit the output to, or -1.
+   * @param fieldIndex the optional index of the field to limit the output to (either named or overall), or -1.
    * @param outputFormat the @a OutputFormat options to use.
    * @param output the @a ostream to append the formatted value to.
    * @return @a RESULT_OK on success, or an error code.
@@ -482,7 +488,7 @@ class Message : public AttributedItem {
   /**
    * Decode a particular numeric field value from the last stored data.
    * @param fieldName the name of the field to decode, or NULL for the first field.
-   * @param fieldIndex the optional index of the named field, or -1.
+   * @param fieldIndex the optional index of the field (either named or overall), or -1.
    * @param output the variable in which to store the value.
    * @return @a RESULT_OK on success, or an error code.
    */
@@ -552,11 +558,12 @@ class Message : public AttributedItem {
    * Decode the message from the last stored data in JSON format.
    * @param leadingSeparator whether to prepend a separator before the first value.
    * @param appendDirection whether to append the direction to the name key (for passive and write).
+   * @param addRaw whether to add the raw symbols as well.
    * @param outputFormat the @a OutputFormat options to use.
    * @param output the @a ostringstream to append the decoded value(s) to.
    */
-  virtual void decode(bool leadingSeparator, bool appendDirection, OutputFormat outputFormat, ostringstream* output)
-      const;
+  virtual void decodeJson(bool leadingSeparator, bool appendDirection, bool addRaw, OutputFormat outputFormat,
+      ostringstream* output) const;
 
  protected:
   /** the optional circuit name. */
