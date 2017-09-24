@@ -78,25 +78,26 @@ echo > dump
 ./src/tools/ebusctl -x >/dev/null 2>/dev/null
 ./src/tools/ebusctl 'help x' >/dev/null 2>/dev/null
 #server:
+php -r 'echo "php is available";'|egrep 'php is available'
+if [ ! "$?" = 0 ]; then
+  echo `date` "php is not available"
+  exit 1
+fi
 php -r '
-error_reporting (E_ALL);
-set_time_limit (0);
-ob_implicit_flush ();
-if (($srv=socket_create(AF_INET, SOCK_STREAM, SOL_TCP))===false) die("server: create socket");
-if (socket_bind($srv, "127.0.0.1", 8876)===false) {
-  @socket_close($srv);
-  die("server: bind socket");
+error_reporting(E_ALL);
+set_time_limit(0);
+ob_implicit_flush();
+if (($srv=socket_create_listen(8876))===false) {
+  die("server: create_listen socket");
 }
-if (socket_listen($srv, 5)===false) {
-  @socket_close($srv);
-  die("server: listen socket");
-}
+socket_set_block($srv);
 echo "server: waiting\n";
 if (($cli=socket_accept($srv))===false) {
   @socket_close($srv);
   die("server: socket accept");
 }
-@socket_set_block($cli);
+echo "server: connection accepted\n";
+socket_set_block($cli);
 $output="";
 $input=$hexinput="";
 echo "server: running\n";
@@ -114,7 +115,7 @@ while (time()<$endtime) {
       echo "server: <$output\n";
       if ($expectnext) {
         if ($expectnext!=$output) {
-          if (substr($output,0,2)!='ff') {
+          if (substr($output,0,2)!="ff") {
             echo "server: arbitration lost for ".substr($output,0,2).", retry\n";
             $firstsend=time()+5;
             $secondsend=$firstsend+5;
@@ -174,17 +175,17 @@ if ($error) {
 ' &
 srvpid=$!
 if [ -z "$srvpid" ]; then
-  echo "unable to start echo server"
+  echo `date` "unable to start echo server"
   exit 1
 fi
 sleep 1
 ps -p $srvpid >/dev/null
 status="$?"
 if [ ! "$status" = 0 ]; then
-  echo "unable to start echo server"
+  echo `date` "unable to start echo server"
   exit 1
 fi
-echo "server: $srvpid"
+echo `date` "server: $srvpid"
 cat >contrib/etc/ebusd/test.csv <<EOF
 #no column names
 u,broadcast,outsidetemp,,,fe,b516,01,temp2,m,D2B
@@ -206,16 +207,16 @@ r,,SoftwareVersion,,,,,"0000",,,HEX:4,,,
 EOF
 echo "test,testpass,installer" > ./passwd
 #ebusd:
-./src/ebusd/ebusd -d tcp:127.0.0.1:8876 --initsend --latency 10000 -n -c "$PWD/contrib/etc/ebusd" --pollinterval=10 -s -a 31 --acquireretries 3 --answer --generatesyn --receivetimeout 40000 --sendretries 1 --enablehex --htmlpath "$PWD/contrib/html" --httpport 8878 --localhost --pidfile "$PWD/ebusd.pid" -p 8877 -l "$PWD/ebusd.log" --logareas all --loglevel debug --lograwdata=bytes --lograwdatafile "$PWD/ebusd.raw" --lograwdatasize 1 --dumpfile "$PWD/ebusd.dump" --dumpsize 100 -D --scanconfig --aclfile=./passwd --mqttport=1883
-sleep 1
+./src/ebusd/ebusd -d tcp:127.0.0.1:8876 --initsend --latency 10000 -n -c "$PWD/contrib/etc/ebusd" --pollinterval=10 -s -a 31 --acquireretries 3 --answer --generatesyn --receivetimeout 40000 --sendretries 1 --enablehex --htmlpath "$PWD/contrib/html" --httpport 8878 --pidfile "$PWD/ebusd.pid" --localhost -p 8877 -l "$PWD/ebusd.log" --logareas all --loglevel debug --lograwdata=bytes --lograwdatafile "$PWD/ebusd.raw" --lograwdatasize 1 --dumpfile "$PWD/ebusd.dump" --dumpsize 100 -D --scanconfig --aclfile=./passwd --mqttport=1883
+sleep 3
 pid=`head -n 1 "$PWD/ebusd.pid"`
 if [ -z "$pid" ]; then
-  echo "unable to start ebusd"
+  echo `date` "unable to start ebusd"
   kill $srvpid
   cat "$PWD/ebusd.log"
   exit 1
 fi
-echo "ebusd: $pid"
+echo `date` "ebusd: $pid"
 kill -1 $pid
 #client:
 readarray lines <<EOF
@@ -302,51 +303,62 @@ r -h fe070400
 w -h fe070400
 nocommand
 EOF
-while [ ! "$status" = 0 ]; do
+status=1
+cnt=3
+while [[ ! "$status" = 0 ]] && [[ $cnt -gt 0 ]]; do
   sleep 5
+  echo `date` "check signal"
   ./src/tools/ebusctl -p 8877 state | egrep -q "signal acquired"
   status=$?
+  cnt=$((cnt - 1))
 done
-if [ "$status" = 0 ]; then
-  echo "got signal"
-  sleep 5
-  echo "listen"|./src/tools/ebusctl -p 8877 &
-  lstpid=$!
-  ./src/tools/ebusctl -p 8899 >/dev/null 2>/dev/null
-  for line in "${lines[@]}"; do
-    if [ -n "$line" ]; then
-      echo "send: $line"
-      ./src/tools/ebusctl -p 8877 $line
-    fi
-  done
-  while [ "$status" = 0 ]; do
-    ./src/tools/ebusctl -p 8877 scan result | egrep -q "still running"
-    status=$?
-  done
-  echo "scan result:"
-  ./src/tools/ebusctl -p 8877 scan result
-  curl -s "http://localhost:8878/data/" >/dev/null
-  curl -s "http://localhost:8878/data/broadcast/?since=1&exact=1&required=" >/dev/null
-  curl -s "http://localhost:8878/data/mc.4/outsidetemp?poll=1" >/dev/null
-  curl -s "http://localhost:8878/data/?verbose=1" >/dev/null
-  curl -s "http://localhost:8878/data/?indexed=1&numeric=1" >/dev/null
-  curl -s "http://localhost:8878/data/?full" >/dev/null
-  curl -s "http://localhost:8878/data/mc.5/installparam?poll=1&user=test&secret=testpass" >/dev/null
-  curl -T .travis.yml http://localhost:8878/data/
-  echo "commands done"
-  kill $lstpid
-fi
-verify=`./src/tools/ebusctl -p 8877 info|egrep "^address 04:"`
-if [ "x$verify" != 'xaddress 04: slave #25, scanned "MF=153;ID=BBBBB;SW=3031;HW=3031"' ]; then
-  echo "error unexpected result from info command: $verify"
+if [ "$status" != 0 ]; then
+  echo `date` "unable to acquire signal"
   kill $pid
   kill $srvpid
-  echo "ebusd log:"
+  echo `date` "ebusd log:"
   cat "$PWD/ebusd.log"
   exit 1
 fi
+echo `date` "got signal"
+sleep 2
+echo "listen"|./src/tools/ebusctl -p 8877 &
+lstpid=$!
+./src/tools/ebusctl -p 8899 >/dev/null 2>/dev/null
+for line in "${lines[@]}"; do
+  if [ -n "$line" ]; then
+    echo `date` "send: $line"
+    ./src/tools/ebusctl -p 8877 $line
+  fi
+done
+while [ "$status" = 0 ]; do
+  ./src/tools/ebusctl -p 8877 scan result | egrep -q "still running"
+  status=$?
+done
+echo `date` "scan result:"
+./src/tools/ebusctl -p 8877 scan result
+curl -s "http://localhost:8878/data/" >/dev/null
+curl -s "http://localhost:8878/data/broadcast/?since=1&exact=1&required=" >/dev/null
+curl -s "http://localhost:8878/data/mc.4/outsidetemp?poll=1" >/dev/null
+curl -s "http://localhost:8878/data/?verbose=1" >/dev/null
+curl -s "http://localhost:8878/data/?indexed=1&numeric=1" >/dev/null
+curl -s "http://localhost:8878/data/?full" >/dev/null
+curl -s "http://localhost:8878/data/mc.5/installparam?poll=1&user=test&secret=testpass" >/dev/null
+curl -T .travis.yml http://localhost:8878/data/
+echo `date` "commands done"
+kill $lstpid
+verify=`./src/tools/ebusctl -p 8877 info|egrep "^address 04:"`
+if [ "x$verify" != 'xaddress 04: slave #25, scanned "MF=153;ID=BBBBB;SW=3031;HW=3031"' ]; then
+  echo `date` "error unexpected result from info command: $verify"
+  kill $pid
+  kill $srvpid
+  echo `date` "ebusd log:"
+  cat "$PWD/ebusd.log"
+  exit 1
+fi
+sleep 2
 kill $pid
-echo "ebusd log:"
+echo `date` "ebusd log:"
 cat "$PWD/ebusd.log"
-echo "done."
+echo `date` "done."
 wait $srvpid

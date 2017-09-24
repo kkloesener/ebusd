@@ -1,4 +1,17 @@
-# next version: 3.0
+# next version: 3.1
+
+## Bug Fixes
+* corrected wrong defaults directory in Debian Jessie build
+* corrected dump of chained messages
+
+## Features
+* added helper script for reading all Vaillant registers for a single slave via hex command
+* check all message definitions independent of any condition when checking/dumping configuration
+* added option to disable automatic update check
+* add scan config mode to start log entry
+
+
+# 3.0 (2017-08-29)
 
 ## Breaking Changes
 * switched to C++11 compiler
@@ -8,6 +21,7 @@
 * use CSV header line for determining columns and picking multi-language columns by language preference
 * a circuit name is now required for all message configurations
 * raw logging allows logging of messages or each sent/received byte defaulting to messages
+* added systemd unit script
 
 ## Bug Fixes
 * corrected numeric condition formatting
@@ -30,6 +44,7 @@
 * fix for timeout message when decoding scan result failed
 * corrected flushing in dump and raw files
 * corrected unique keys in JSON port
+* fix for potential invalid access during configuration reload
 
 ## Features
 * added support for MQTT handling via libmosquitto (will be compiled in when library is available)

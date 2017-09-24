@@ -22,6 +22,7 @@
 #include <mosquitto.h>
 #include <map>
 #include <string>
+#include <list>
 #include <vector>
 #include "ebusd/datahandler.h"
 #include "ebusd/bushandler.h"
@@ -48,9 +49,11 @@ const struct argp_child* mqtthandler_getargs();
  * @param userInfo the @a UserInfo instance.
  * @param busHandler the @a BusHandler instance.
  * @param messages the @a MessageMap instance.
- * @return the create @a DataHandler, or NULL on error.
+ * @param handlers the @a list to which new @a DataHandler instances shall be added.
+ * @return true if registration was successful.
  */
-DataHandler* mqtthandler_register(UserInfo* userInfo, BusHandler* busHandler, MessageMap* messages);
+bool mqtthandler_register(UserInfo* userInfo, BusHandler* busHandler, MessageMap* messages,
+    list<DataHandler*>* handlers);
 
 /**
  * The main class supporting MQTT data handling.
@@ -120,12 +123,6 @@ class MqttHandler : public DataSink, public DataSource, public Thread {
 
   /** the @a MessageMap instance. */
   MessageMap* m_messages;
-
-  /** the MQTT topic string parts. */
-  vector<string> m_topicStrs;
-
-  /** the MQTT topic field parts. */
-  vector<string> m_topicFields;
 
   /** the global topic prefix. */
   string m_globalTopic;

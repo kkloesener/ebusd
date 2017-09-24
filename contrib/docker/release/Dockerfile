@@ -1,12 +1,12 @@
-FROM debian
+FROM debian:jessie
 
 RUN apt-get update && apt-get install -y \
-    libmosquitto1 \
+    logrotate libmosquitto1 \
     curl
 
 LABEL maintainer "ebusd@ebusd.eu"
 
-ENV EBUSD_VERSION 2.4
+ENV EBUSD_VERSION 3.0
 ENV EBUSD_ARCH amd64
 
 LABEL version "${EBUSD_VERSION}-${EBUSD_ARCH}"

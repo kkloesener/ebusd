@@ -1433,6 +1433,16 @@ class MessageMap : public MappedFileReader {
   bool decodeCircuit(const string& circuit, OutputFormat outputFormat, ostringstream* output) const;
 
   /**
+   * Lock this instance against simultaneous modifying access.
+   */
+  void lock() { m_mutex.lock(); }
+
+  /**
+   * Unlock this instance against simultaneous modifying access.
+   */
+  void unlock() { m_mutex.unlock(); }
+
+  /**
    * Removes all @a Message instances.
    */
   void clear();
