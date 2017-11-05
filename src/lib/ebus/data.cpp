@@ -702,7 +702,6 @@ void ValueListDataField::dump(bool prependFieldSeparator, bool asJson, ostream* 
     }
     *output << " }";
   } else {
-    *output << FIELD_SEPARATOR;
     for (const auto it : m_values) {
       if (first) {
         first = false;
@@ -762,9 +761,9 @@ result_t ValueListDataField::writeSymbols(size_t offset, istringstream* input,
   }
 
   const char* str = input->str().c_str();
-  for (const auto it : m_values) {
-    if (it.second.compare(str) == 0) {
-      return numType->writeRawValue(it.first, offset, m_length, output, usedLength);
+  for (map<unsigned int, string>::const_iterator it = m_values.begin(); it != m_values.end(); ++it) {
+    if (it->second.compare(str) == 0) {
+      return numType->writeRawValue(it->first, offset, m_length, output, usedLength);
     }
   }
   char* strEnd = NULL;  // fall back to raw value in input
@@ -813,7 +812,7 @@ void ConstantDataField::dump(bool prependFieldSeparator, bool asJson, ostream* o
     appendJson(false, "value", m_value, true, output);
     *output << ", \"verify\":" << (m_verify ? "true" : "false");
   } else {
-    *output << FIELD_SEPARATOR << (m_verify?"==":"=") << m_value;
+    *output << (m_verify?"==":"=") << m_value;
   }
   dumpSuffix(asJson, output);
 }
