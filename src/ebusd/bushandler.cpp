@@ -419,6 +419,7 @@ void BusHandler::run() {
         setState(bs_noSignal, result);
       }
       symCount = 0;
+      m_symbolLatencyMin = m_symbolLatencyMax = m_arbitrationDelayMin = m_arbitrationDelayMax = -1;
       time(&lastTime);
       lastTime += 2;
     }
@@ -544,6 +545,7 @@ result_t BusHandler::handleSymbol() {
 
   // send symbol if necessary
   result_t result;
+  struct timespec sentTime, recvTime;
   if (sending) {
     if (m_state != bs_sendSyn && (sendSymbol == ESC || sendSymbol == SYN)) {
       if (m_escape) {
@@ -554,6 +556,7 @@ result_t BusHandler::handleSymbol() {
       }
     }
     result = m_device->send(sendSymbol);
+    clockGettime(&sentTime);
     if (result == RESULT_OK) {
       if (m_state == bs_ready) {
         timeout = m_transferLatency+m_busAcquireTimeout;
@@ -573,13 +576,18 @@ result_t BusHandler::handleSymbol() {
   // receive next symbol (optionally check reception of sent symbol)
   symbol_t recvSymbol;
   result = m_device->recv(timeout+m_transferLatency, &recvSymbol);
+  if (sending) {
+    clockGettime(&recvTime);
+  }
   if (!sending && result == RESULT_ERR_TIMEOUT && m_generateSynInterval > 0
   && timeout >= m_generateSynInterval && (m_state == bs_noSignal || m_state == bs_skip)) {
     // check if acting as AUTO-SYN generator is required
     result = m_device->send(SYN);
     if (result == RESULT_OK) {
+      clockGettime(&sentTime);
       recvSymbol = ESC;
       result = m_device->recv(SEND_TIMEOUT+m_transferLatency, &recvSymbol);
+      clockGettime(&recvTime);
       if (result == RESULT_ERR_TIMEOUT) {
         return setState(bs_noSignal, result);
       }
@@ -588,12 +596,14 @@ result_t BusHandler::handleSymbol() {
       } else if (recvSymbol != SYN) {
         logError(lf_bus, "received %2.2x instead of AUTO-SYN symbol", recvSymbol);
       } else {
+        measureLatency(&sentTime, &recvTime);
         if (m_generateSynInterval != SYN_TIMEOUT) {
           // received own AUTO-SYN symbol back again: act as AUTO-SYN generator now
           m_generateSynInterval = SYN_TIMEOUT;
           logNotice(lf_bus, "acting as AUTO-SYN generator");
         }
         m_remainLockCount = 0;
+        m_lastSynReceiveTime = recvTime;
         return setState(bs_ready, result);
       }
     }
@@ -620,7 +630,15 @@ result_t BusHandler::handleSymbol() {
     } else if (!sending && m_remainLockCount == 0 && m_command.size() == 1) {
       m_remainLockCount = 1;  // wait for next AUTO-SYN after SYN / address / SYN (bus locked for own priority)
     }
+    clockGettime(&m_lastSynReceiveTime);
     return setState(bs_ready, m_state == bs_skip ? RESULT_OK : RESULT_ERR_SYN);
+  }
+
+  if (sending && m_state != bs_ready) {  // check received symbol for equality if not in arbitration
+    if (recvSymbol != sendSymbol) {
+      return setState(bs_skip, RESULT_ERR_SYMBOL);
+    }
+    measureLatency(&sentTime, &recvTime);
   }
 
   switch (m_state) {
@@ -638,9 +656,6 @@ result_t BusHandler::handleSymbol() {
   if (m_escape) {
     // check escape/unescape state
     if (sending) {
-      if (recvSymbol != sendSymbol) {
-        return setState(bs_skip, RESULT_ERR_SYMBOL);
-      }
       if (sendSymbol == ESC) {
         return RESULT_OK;
       }
@@ -673,6 +688,22 @@ result_t BusHandler::handleSymbol() {
       m_currentRequest = startRequest;
       // check arbitration
       if (recvSymbol == sendSymbol) {  // arbitration successful
+        // measure arbitration delay
+        long long latencyLong = (sentTime.tv_sec*1000000000 + sentTime.tv_nsec
+        - m_lastSynReceiveTime.tv_sec*1000000000 - m_lastSynReceiveTime.tv_nsec)/1000;
+        if (latencyLong >= 0 && latencyLong <= 10000) {  // skip clock skew or out of reasonable range
+          int latency = (int)latencyLong;
+          logDebug(lf_bus, "arbitration delay %d micros", latency);
+          if (m_arbitrationDelayMin < 0 || (latency < m_arbitrationDelayMin || latency > m_arbitrationDelayMax)) {
+            if (m_arbitrationDelayMin == -1 || latency < m_arbitrationDelayMin) {
+              m_arbitrationDelayMin = latency;
+            }
+            if (m_arbitrationDelayMax == -1 || latency > m_arbitrationDelayMax) {
+              m_arbitrationDelayMax = latency;
+            }
+            logInfo(lf_bus, "arbitration delay %d - %d micros", m_arbitrationDelayMin, m_arbitrationDelayMax);
+          }
+        }
         m_nextSendPos = 1;
         m_repeat = false;
         return setState(bs_sendCmd, RESULT_OK);
@@ -811,9 +842,6 @@ result_t BusHandler::handleSymbol() {
     if (!sending || m_currentRequest == NULL) {
       return setState(bs_skip, RESULT_ERR_INVALID_ARG);
     }
-    if (recvSymbol != sendSymbol) {
-      return setState(bs_skip, RESULT_ERR_SYMBOL);
-    }
     m_nextSendPos++;
     if (m_nextSendPos >= m_currentRequest->m_master.size()) {
       return setState(bs_sendCmdCrc, RESULT_OK);
@@ -831,9 +859,6 @@ result_t BusHandler::handleSymbol() {
     if (!sending || m_currentRequest == NULL) {
       return setState(bs_skip, RESULT_ERR_INVALID_ARG);
     }
-    if (recvSymbol != sendSymbol) {
-      return setState(bs_skip, RESULT_ERR_SYMBOL);
-    }
     if (!m_crcValid) {
       if (!m_repeat) {
         m_repeat = true;
@@ -847,9 +872,6 @@ result_t BusHandler::handleSymbol() {
   case bs_sendCmdAck:
     if (!sending || !m_answer) {
       return setState(bs_skip, RESULT_ERR_INVALID_ARG);
-    }
-    if (recvSymbol != sendSymbol) {
-      return setState(bs_skip, RESULT_ERR_SYMBOL);
     }
     if (!m_crcValid) {
       if (!m_repeat) {
@@ -897,9 +919,6 @@ result_t BusHandler::handleSymbol() {
     if (!sending || !m_answer) {
       return setState(bs_skip, RESULT_ERR_INVALID_ARG);
     }
-    if (recvSymbol != sendSymbol) {
-      return setState(bs_skip, RESULT_ERR_SYMBOL);
-    }
     m_nextSendPos++;
     if (m_nextSendPos >= m_response.size()) {
       // slave data completely sent
@@ -911,17 +930,11 @@ result_t BusHandler::handleSymbol() {
     if (!sending || !m_answer) {
       return setState(bs_skip, RESULT_ERR_INVALID_ARG);
     }
-    if (recvSymbol != sendSymbol) {
-      return setState(bs_skip, RESULT_ERR_SYMBOL);
-    }
     return setState(bs_recvResAck, RESULT_OK);
 
   case bs_sendSyn:
     if (!sending) {
       return setState(bs_skip, RESULT_ERR_INVALID_ARG);
-    }
-    if (recvSymbol != sendSymbol) {
-      return setState(bs_skip, RESULT_ERR_SYMBOL);
     }
     return setState(bs_skip, RESULT_OK);
   }
@@ -1001,6 +1014,26 @@ result_t BusHandler::setState(BusState state, result_t result, bool firstRepetit
     m_crc = 0;
   }
   return result;
+}
+
+void BusHandler::measureLatency(struct timespec* sentTime, struct timespec* recvTime) {
+  long long latencyLong = (recvTime->tv_sec*1000000000 + recvTime->tv_nsec
+      - sentTime->tv_sec*1000000000 - sentTime->tv_nsec)/1000000;
+  if (latencyLong < 0 || latencyLong > 1000) {
+    return;  // clock skew or out of reasonable range
+  }
+  int latency = (int)latencyLong;
+  logDebug(lf_bus, "send/receive symbol latency %d ms", latency);
+  if (m_symbolLatencyMin >= 0 && (latency >= m_symbolLatencyMin && latency <= m_symbolLatencyMax)) {
+    return;
+  }
+  if (m_symbolLatencyMin == -1 || latency < m_symbolLatencyMin) {
+    m_symbolLatencyMin = latency;
+  }
+  if (m_symbolLatencyMax == -1 || latency > m_symbolLatencyMax) {
+    m_symbolLatencyMax = latency;
+  }
+  logInfo(lf_bus, "send/receive symbol latency %d - %d ms", m_symbolLatencyMin, m_symbolLatencyMax);
 }
 
 bool BusHandler::addSeenAddress(symbol_t address) {
