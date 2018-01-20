@@ -303,25 +303,23 @@ error_t parse_opt(int key, char *arg, struct argp_state *state) {
       argp_error(state, "scanconfig without polling may lead to invalid files included for certain products!");
       return EINVAL;
     }
-    if (arg != NULL) {
-      if (arg[0] == 0 || strcmp("none", arg) == 0) {
-        opt->initialScan = ESC;
-      } else if (strcmp("full", arg) == 0) {
-        opt->initialScan = SYN;
-      } else {
-        opt->initialScan = (symbol_t)parseInt(arg, 16, 0x00, 0xff, &result);
-        if (!isValidAddress(opt->initialScan)) {
-          argp_error(state, "invalid initial scan address");
-          return EINVAL;
-        }
-        if (isMaster(opt->initialScan)) {
-          opt->initialScan = getSlaveAddress(opt->initialScan);
-        }
-      }
-      if (opt->readOnly && opt->initialScan != ESC) {
-        argp_error(state, "cannot combine readonly with answer/generatesyn/initsend/scanconfig=*");
+    if (!arg || arg[0] == 0 || strcmp("none", arg) == 0) {
+      opt->initialScan = ESC;
+    } else if (strcmp("full", arg) == 0) {
+      opt->initialScan = SYN;
+    } else {
+      opt->initialScan = (symbol_t)parseInt(arg, 16, 0x00, 0xff, &result);
+      if (result != RESULT_OK || !isValidAddress(opt->initialScan)) {
+        argp_error(state, "invalid initial scan address");
         return EINVAL;
       }
+      if (isMaster(opt->initialScan)) {
+        opt->initialScan = getSlaveAddress(opt->initialScan);
+      }
+    }
+    if (opt->readOnly && opt->initialScan != ESC) {
+      argp_error(state, "cannot combine readonly with answer/generatesyn/initsend/scanconfig=*");
+      return EINVAL;
     }
     break;
   case O_CFGLNG:  // --configlang=LANG
@@ -652,11 +650,11 @@ void closePidFile() {
  */
 void shutdown() {
   // stop main loop and all dependent components
-  if (s_mainLoop != NULL) {
+  if (s_mainLoop) {
     delete s_mainLoop;
     s_mainLoop = NULL;
   }
-  if (s_messageMap != NULL) {
+  if (s_messageMap) {
     delete s_messageMap;
     s_messageMap = NULL;
   }
@@ -697,11 +695,19 @@ void signalHandler(int sig) {
     break;
   case SIGINT:
     logNotice(lf_main, "SIGINT received");
-    s_mainLoop->shutdown();
+    if (s_mainLoop) {
+      s_mainLoop->shutdown();
+    } else {
+      shutdown();
+    }
     break;
   case SIGTERM:
     logNotice(lf_main, "SIGTERM received");
-    s_mainLoop->shutdown();
+    if (s_mainLoop) {
+      s_mainLoop->shutdown();
+    } else {
+      shutdown();
+    }
     break;
   default:
     logNotice(lf_main, "undefined signal %s", strsignal(sig));
@@ -1191,8 +1197,9 @@ int main(int argc, char* argv[]) {
   signal(SIGTERM, signalHandler);
 
   logNotice(lf_main, PACKAGE_STRING "." REVISION " started%s",
-      opt.scanConfig ? opt.initialScan == ESC ? " with scan" : opt.initialScan == BROADCAST ? " with broadcast scan"
-      : opt.initialScan == SYN ? " with full scan" : " with single scan" : "");
+      opt.scanConfig ? opt.initialScan == ESC ? " with auto scan"
+      : opt.initialScan == BROADCAST ? " with broadcast scan" : opt.initialScan == SYN ? " with full scan"
+      : " with single scan" : "");
 
   // load configuration files
   loadConfigFiles(s_messageMap);
