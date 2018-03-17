@@ -1,6 +1,6 @@
 /*
  * ebusd - daemon for communication with eBUS heating systems.
- * Copyright (C) 2014-2017 John Baier <ebusd@ebusd.eu>
+ * Copyright (C) 2014-2018 John Baier <ebusd@ebusd.eu>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -424,7 +424,7 @@ class BusHandler : public WaitThread {
     m_command = master;
     m_response = slave;
     m_addressConflict = true;  // avoid conflict messages
-    receiveCompleted();
+    messageCompleted();
     m_addressConflict = false;
   }
 
@@ -623,9 +623,9 @@ class BusHandler : public WaitThread {
   void measureLatency(struct timespec* sentTime, struct timespec* recvTime);
 
   /**
-   * Called when a passive reception was successfully completed.
+   * Called when a message sending or reception was successfully completed.
    */
-  void receiveCompleted();
+  void messageCompleted();
 
   /**
    * Prepare a @a ScanRequest.

@@ -1,6 +1,6 @@
 /*
  * ebusd - daemon for communication with eBUS heating systems.
- * Copyright (C) 2016-2017 John Baier <ebusd@ebusd.eu>
+ * Copyright (C) 2016-2018 John Baier <ebusd@ebusd.eu>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,7 +58,7 @@ bool mqtthandler_register(UserInfo* userInfo, BusHandler* busHandler, MessageMap
 /**
  * The main class supporting MQTT data handling.
  */
-class MqttHandler : public DataSink, public DataSource, public Thread {
+class MqttHandler : public DataSink, public DataSource, public WaitThread {
  public:
   /**
    * Constructor.
@@ -94,8 +94,9 @@ class MqttHandler : public DataSink, public DataSource, public Thread {
  private:
   /**
    * Called regularly to handle MQTT traffic.
+   * @param allowReconnect true when reconnecting to the broker is allowed.
    */
-  void handleTraffic();
+  void handleTraffic(bool allowReconnect);
 
   /**
    * Build the MQTT topic string for the @a Message.
