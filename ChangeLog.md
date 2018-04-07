@@ -1,3 +1,22 @@
+# next version
+
+## Breaking Changes
+* changed default configuration file location to config web service at ebusd.eu
+
+## Bug Fixes
+* corrected tag name set by make_debian
+* corrected MQTT /get topic on field level
+* corrected weird IP address logging
+
+## Features
+* added support for retrieving configuration files from config web service
+* changed docker image to be smaller size and fixed missing library dependencies
+* added automatic reconnect to MQTT broker
+* changed logging for messages from "updated" to "received" and "sent" depending on who initiated the request
+* added support for serving .csv files and new argument maxage to HTTP/JSON port
+* added timeout argument and error result code to ebusctl
+
+
 # 3.1 (2017-12-26)
 
 ## Bug Fixes

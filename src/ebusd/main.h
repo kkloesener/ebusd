@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include <string>
+#include <map>
 #include "lib/ebus/data.h"
 #include "lib/ebus/message.h"
 #include "lib/ebus/result.h"
@@ -40,7 +41,7 @@ struct options {
   bool initialSend;  //!< send an initial escape symbol after connecting device
   int latency;  //!< transfer latency in us [0 for USB, 10000 for IP]
 
-  const char* configPath;  //!< path to CSV configuration files [/etc/ebusd]
+  const char* configPath;  //!< path to CSV configuration files [http://ebusd.eu/config/]
   bool scanConfig;  //!< pick configuration files matching initial scan
   /** the initial address to scan for scanconfig
    * (@a ESC=none, 0xfe=broadcast ident, @a SYN=full scan, else: single slave address). */
@@ -119,6 +120,18 @@ result_t loadScanConfigFile(MessageMap* messages, symbol_t address, bool verbose
  * @param verbose whether to verbosely log all problems.
  */
 void executeInstructions(MessageMap* messages, bool verbose = false);
+
+/**
+ * Helper method for loading definitions from a relative file from the config path/URL.
+ * @param reader the @a FileReader instance to load with the definitions.
+ * @param filename the relative name of the file being read.
+ * @param verbose whether to verbosely log problems.
+ * @param defaults the default values by name (potentially overwritten by file name), or NULL to not use defaults.
+ * @param errorDescription a string in which to store the error description in case of error.
+ * @return @a RESULT_OK on success, or an error code.
+ */
+result_t loadDefinitionsFromConfigPath(FileReader* reader, const string& filename, bool verbose,
+    map<string, string>* defaults, string* errorDescription);
 
 }  // namespace ebusd
 

@@ -128,7 +128,14 @@ MainLoop::MainLoop(const struct options& opt, Device *device, MessageMap* messag
   m_logRawLastSymbol = SYN;
   if (opt.aclFile[0]) {
     string errorDescription;
-    result = m_userList.readFromFile(opt.aclFile, false, NULL, &errorDescription, NULL, NULL, NULL);
+    time_t mtime = 0;
+    istream* stream = FileReader::openFile(opt.aclFile, &errorDescription, &mtime);
+    if (stream) {
+      result = m_userList.readFromStream(stream, opt.aclFile, mtime, false, NULL, &errorDescription);
+      delete(stream);
+    } else {
+      result = RESULT_ERR_NOTFOUND;
+    }
     if (result != RESULT_OK) {
       logError(lf_main, "error reading ACL file \"%s\": %s", opt.aclFile, getResultCode(result));
     }
@@ -480,6 +487,11 @@ result_t MainLoop::decodeMessage(const string &data, bool isHttp, bool* connecte
   }
 
   if (isHttp) {
+    if (args.size() < 2) {
+      *connected = false;
+      *ostream << "HTTP/1.0 400 Bad Request\r\n\r\n";
+      return RESULT_OK;
+    }
     const char* str = args.size() > 0 ? args[0].c_str() : "";
     if (strcmp(str, "GET") == 0) {
       return executeGet(args, connected, ostream);
@@ -1590,6 +1602,7 @@ result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostri
   bool numeric = false, valueName = false, required = false, full = false, withWrite = false, raw = false;
   bool withDefinition = false;
   OutputFormat verbosity = OF_NAMES;
+  time_t maxAge = -1;
   size_t argPos = 1;
   string uri = args[argPos++];
   int type = -1;
@@ -1643,6 +1656,9 @@ result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostri
           full = parseBoolQuery(value);
         } else if (qname == "required") {
           required = parseBoolQuery(value);
+        } else if (qname == "maxage") {
+          maxAge = parseInt(value.c_str(), 10, 0, 24*60*60, &ret);
+          required = true;
         } else if (qname == "write") {
           withWrite = parseBoolQuery(value);
         } else if (qname == "raw") {
@@ -1665,6 +1681,8 @@ result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostri
 
     *ostream << "{";
     string lastCircuit;
+    time_t now;
+    time(&now);
     time_t maxLastUp = 0;
     if (ret == RESULT_OK) {
       bool first = true;
@@ -1684,7 +1702,7 @@ result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostri
           m_messages->addPollMessage(false, message);
         }
         time_t lastup = message->getLastUpdateTime();
-        if (lastup == 0 && required) {
+        if (required && (lastup == 0 || (maxAge >=0 && lastup + maxAge > now))) {
           // read directly from bus
           if (message->isPassive()) {
             continue;  // not possible to actively read this message
@@ -1794,6 +1812,8 @@ result_t MainLoop::executeGet(const vector<string>& args, bool* connected, ostri
         type = 6;
       } else if (ext == "yaml") {
         type = 7;
+      } else if (ext == "csv") {
+        type = 8;
       }
     }
     if (type < 0) {
@@ -1842,6 +1862,9 @@ result_t MainLoop::formatHttpResult(result_t ret, int type, ostringstream* ostre
       break;
     case 7:
       *ostream << "application/yaml;charset=utf-8";
+      break;
+    case 9:
+      *ostream << "text/comma-separated-values";
       break;
     default:
       *ostream << "text/html";
