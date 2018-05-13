@@ -90,7 +90,7 @@ class Message : public AttributedItem {
    * @param data the @a DataField for encoding/decoding the message.
    * @param deleteData whether to delete the @a DataField during destruction.
    * @param pollPriority the priority for polling, or 0 for no polling at all.
-   * @param condition the @a Condition for this message, or NULL.
+   * @param condition the @a Condition for this message, or nullptr.
    */
   Message(const string& circuit, const string& level, const string& name,
       bool isWrite, bool isPassive, const map<string, string>& attributes,
@@ -98,7 +98,7 @@ class Message : public AttributedItem {
       const vector<symbol_t>& id,
       const DataField* data, bool deleteData,
       size_t pollPriority = 0,
-      Condition* condition = NULL);
+      Condition* condition = nullptr);
 
 
  private:
@@ -173,11 +173,11 @@ class Message : public AttributedItem {
   /**
    * Factory method for creating new instances.
    * @param filename the name of the file being read.
-   * @param templates the @a DataFieldTemplates to be referenced by name, or NULL.
+   * @param templates the @a DataFieldTemplates to be referenced by name, or nullptr.
    * @param rowDefaults the mapped message definition defaults.
    * @param subRowDefaults the mapped field definition defaults.
    * @param typeStr the single type of message to create.
-   * @param condition the @a Condition instance for the message, or NULL.
+   * @param condition the @a Condition instance for the message, or nullptr.
    * @param row the mapped message definition row (may be modified).
    * @param subRows the mapped field definition rows (may be modified).
    * @param errorDescription a string in which to store the error description in case of error.
@@ -195,9 +195,10 @@ class Message : public AttributedItem {
   /**
    * Create a new scan @a Message instance.
    * @param broadcast true for broadcast scan message, false for scan message to be sent to a slave address.
+   * @param deleteData whether to delete the @a DataField during @a Message destruction.
    * @return the new scan @a Message instance.
    */
-  static Message* createScanMessage(bool broadcast = false);
+  static Message* createScanMessage(bool broadcast = false, bool deleteData = true);
 
   /**
    * Extract the known field names from the input string.
@@ -333,7 +334,7 @@ class Message : public AttributedItem {
   /**
    * Check the ID against the master @a SymbolString data.
    * @param master the @a MasterSymbolString to check against.
-   * @param index the variable in which to store the message part index, or NULL to ignore.
+   * @param index the variable in which to store the message part index, or nullptr to ignore.
    * @return true if the ID matches, false otherwise.
    */
   virtual bool checkId(const MasterSymbolString& master, size_t* index) const;
@@ -380,7 +381,7 @@ class Message : public AttributedItem {
    * Return whether this @a Message depends on a @a Condition.
    * @return true when this @a Message depends on a @a Condition.
    */
-  bool isConditional() const { return m_condition != NULL; }
+  bool isConditional() const { return m_condition != nullptr; }
 
   /**
    * Return whether this @a Message is available (optionally depending on a @a Condition evaluation).
@@ -390,7 +391,7 @@ class Message : public AttributedItem {
 
   /**
    * Return whether the field is available.
-   * @param fieldName the name of the field to find, or NULL for any.
+   * @param fieldName the name of the field to find, or nullptr for any.
    * @param numeric true for a numeric field, false for a string field.
    * @return true if the field is available.
    */
@@ -487,7 +488,7 @@ class Message : public AttributedItem {
 
   /**
    * Decode a particular numeric field value from the last stored data.
-   * @param fieldName the name of the field to decode, or NULL for the first field.
+   * @param fieldName the name of the field to decode, or nullptr for the first field.
    * @param fieldIndex the optional index of the field (either named or overall), or -1.
    * @param output the variable in which to store the value.
    * @return @a RESULT_OK on success, or an error code.
@@ -533,14 +534,14 @@ class Message : public AttributedItem {
 
   /**
    * Write the message definition header or parts of it to the @a ostream.
-   * @param fieldNames the list of field names to write, or NULL for all.
+   * @param fieldNames the list of field names to write, or nullptr for all.
    * @param output the @a ostream to append the formatted value to.
    */
   static void dumpHeader(const vector<string>* fieldNames, ostream* output);
 
   /**
    * Write the message definition or parts of it to the @a ostream.
-   * @param fieldNames the list of field names to write, or NULL for all.
+   * @param fieldNames the list of field names to write, or nullptr for all.
    * @param withConditions whether to include the optional conditions prefix.
    * @param output the @a ostream to append the formatted value to.
    */
@@ -626,7 +627,7 @@ class Message : public AttributedItem {
   /** whether this is a special scanning @a Message instance. */
   bool m_isScanMessage;
 
-  /** the @a Condition for this message, or NULL. */
+  /** the @a Condition for this message, or nullptr. */
   Condition* m_condition;
 
   /** the last seen @a MasterSymbolString. */
@@ -669,7 +670,7 @@ class ChainedMessage : public Message {
    * @param data the @a DataField for encoding/decoding the chained message.
    * @param deleteData whether to delete the @a DataField during destruction.
    * @param pollPriority the priority for polling, or 0 for no polling at all.
-   * @param condition the @a Condition for this message, or NULL.
+   * @param condition the @a Condition for this message, or nullptr.
    */
   ChainedMessage(const string& circuit, const string& level, const string& name,
       bool isWrite, const map<string, string>& attributes,
@@ -678,7 +679,7 @@ class ChainedMessage : public Message {
       const vector< vector<symbol_t> >& ids, const vector<size_t>& lengths,
       const DataField* data, bool deleteData,
       size_t pollPriority = 0,
-      Condition* condition = NULL);
+      Condition* condition = nullptr);
 
   virtual ~ChainedMessage();
 
@@ -782,6 +783,18 @@ class MessagePriorityQueue
     }
     priority_queue<Message*, vector<Message*>, compareMessagePriority>::push(__x);
   }
+  /**
+   * Remove data from the queue.
+   * @param __x the element to remove.
+   */
+  void remove(const value_type& __x) {
+    for (vector<Message*>::iterator it = c.begin(); it != c.end(); it++) {
+      if (*it == __x) {
+        c.erase(it);
+        break;
+      }
+    }
+  }
 };
 
 
@@ -815,9 +828,9 @@ class Condition {
   /**
    * Derive a new @a SimpleCondition from this condition.
    * @param valueList the @a string with the new list of values.
-   * @return the derived @a SimpleCondition instance, or NULL if the value list is invalid.
+   * @return the derived @a SimpleCondition instance, or nullptr if the value list is invalid.
    */
-  virtual SimpleCondition* derive(const string& valueList) const { return NULL; }
+  virtual SimpleCondition* derive(const string& valueList) const { return nullptr; }
 
   /**
    * Write the condition definition or resolved expression to the @a ostream.
@@ -836,7 +849,7 @@ class Condition {
   /**
    * Resolve the referred @a Message instance(s) and field index(es).
    * @param messages the @a MessageMap instance for resolving.
-   * @param readMessageFunc the function to call for immediate reading of a @a Message from the bus, or NULL.
+   * @param readMessageFunc the function to call for immediate reading of a @a Message from the bus, or nullptr.
    * @param errorMessage a @a ostringstream to which to add optional error messages.
    * @return @a RESULT_OK on success, or an error code.
    */
@@ -880,7 +893,7 @@ class SimpleCondition : public Condition {
       const string& name, symbol_t dstAddress, const string& field, bool hasValues = false)
     : Condition(),
       m_condName(condName), m_refName(refName), m_circuit(circuit), m_level(level), m_name(name),
-      m_dstAddress(dstAddress), m_field(field), m_hasValues(hasValues), m_message(NULL) { }
+      m_dstAddress(dstAddress), m_field(field), m_hasValues(hasValues), m_message(nullptr) { }
 
   /**
    * Destructor.
@@ -949,7 +962,7 @@ class SimpleCondition : public Condition {
   /** whether a value has to be checked against. */
   const bool m_hasValues;
 
-  /** the resolved @a Message instance, or NULL. */
+  /** the resolved @a Message instance, or nullptr. */
   Message* m_message;
 };
 
@@ -1093,7 +1106,7 @@ class Instruction {
    * Factory method for creating a new instance.
    * @param relPath the relative path and/or filename context being loaded.
    * @param type the type of the instruction.
-   * @param condition the @a Condition for the instruction, or NULL.
+   * @param condition the @a Condition for the instruction, or nullptr.
    * @param row the definition row by field name.
    * @param defaults the default values by name.
    * @param returnValue the variable in which to store the created instance.
@@ -1203,16 +1216,16 @@ class MessageMap : public MappedFileReader {
  public:
   /**
    * Construct a new instance.
-   * @param configPath the path to the configuration files.
    * @param addAll whether to add all messages, even if duplicate.
    * @param preferLanguage the preferred language to use, or empty.
+   * @param deleteData whether to delete the scan message @a DataField during @a Message destruction.
    */
-  explicit MessageMap(bool addAll = false, const string& preferLanguage = "")
+  explicit MessageMap(bool addAll = false, const string& preferLanguage = "", bool deleteData = true)
   : MappedFileReader::MappedFileReader(true),
     m_addAll(addAll), m_additionalScanMessages(false), m_maxIdLength(0), m_maxBroadcastIdLength(0),
     m_messageCount(0), m_conditionalMessageCount(0), m_passiveMessageCount(0) {
-    m_scanMessage = Message::createScanMessage();
-    m_broadcastScanMessage = Message::createScanMessage(true);
+    m_scanMessage = Message::createScanMessage(false, deleteData);
+    m_broadcastScanMessage = Message::createScanMessage(true, false);
   }
 
   /**
@@ -1222,11 +1235,11 @@ class MessageMap : public MappedFileReader {
     clear();
     if (m_scanMessage) {
       delete m_scanMessage;
-      m_scanMessage = NULL;
+      m_scanMessage = nullptr;
     }
     if (m_broadcastScanMessage) {
       delete m_broadcastScanMessage;
-      m_broadcastScanMessage = NULL;
+      m_broadcastScanMessage = nullptr;
     }
   }
 
@@ -1234,10 +1247,17 @@ class MessageMap : public MappedFileReader {
    * Add a @a Message instance to this set.
    * @param message the @a Message instance to add.
    * @param storeByName whether to store the @a Message by name.
+   * @param replace whether to replace an already existing entry.
    * @return @a RESULT_OK on success, or an error code.
    * Note: the caller may not free the added instance on success.
    */
-  result_t add(bool storeByName, Message* message);
+  result_t add(bool storeByName, Message* message, bool replace = false);
+
+  /**
+   * Remove a previously added @a Message.
+   * @param message the @a Message to remove.
+   */
+  void remove(Message* message);
 
   // @copydoc
   result_t getFieldMap(const string& preferLanguage, vector<string>* row, string* errorDescription) const override;
@@ -1258,20 +1278,22 @@ class MessageMap : public MappedFileReader {
 
   // @copydoc
   bool extractDefaultsFromFilename(const string& filename, map<string, string>* defaults,
-      symbol_t* destAddress = NULL, unsigned int* software = NULL, unsigned int* hardware = NULL) const override;
+      symbol_t* destAddress = nullptr, unsigned int* software = nullptr, unsigned int* hardware = nullptr) const
+      override;
 
   // @copydoc
   result_t readFromStream(istream* stream, const string& filename, const time_t& mtime, bool verbose,
-      map<string, string>* defaults, string* errorDescription, size_t* hash = NULL, size_t* size = NULL) override;
+      map<string, string>* defaults, string* errorDescription, bool replace = false, size_t* hash = nullptr,
+      size_t* size = nullptr) override;
 
   // @copydoc
   result_t addFromFile(const string& filename, unsigned int lineNo, map<string, string>* row,
-      vector< map<string, string> >* subRows, string* errorDescription) override;
+      vector< map<string, string> >* subRows, string* errorDescription, bool replace) override;
 
   /**
    * Get the scan @a Message instance for the specified address.
    * @param dstAddress the destination address, or @a SYN for the base scan @a Message.
-   * @return the scan @a Message instance, or NULL if the dstAddress is no slave.
+   * @return the scan @a Message instance, or nullptr if the dstAddress is no slave.
    */
   Message* getScanMessage(const symbol_t dstAddress = SYN);
 
@@ -1291,7 +1313,7 @@ class MessageMap : public MappedFileReader {
 
   /**
    * Resolve a @a Condition.
-   * @param readMessageFunc the function to call for immediate reading of a @a Message from the bus, or NULL.
+   * @param readMessageFunc the function to call for immediate reading of a @a Message from the bus, or nullptr.
    * @param condition the @a Condition to resolve.
    * @param errorDescription a string in which to store the error description in case of error.
    * @return @a RESULT_OK on success, or an error code.
@@ -1302,7 +1324,7 @@ class MessageMap : public MappedFileReader {
   /**
    * Run all executable @a Instruction instances.
    * @param readMessageFunc the function to call for immediate reading of a
-   * @a Message values from the bus required for singleton instructions, or NULL.
+   * @a Message values from the bus required for singleton instructions, or nullptr.
    * @param log the @a ostringstream to log success messages to (if necessary).
    * @return @a RESULT_OK on success, or an error code.
    */
@@ -1333,18 +1355,18 @@ class MessageMap : public MappedFileReader {
    * Get the infos for a loaded file.
    * @param filename the name of the configuration file (including relative path).
    * @param comment a string in which the comment is stored.
-   * @param hash optional pointer to a @a size_t value for storing the hash of the file, or NULL.
-   * @param size optional pointer to a @a size_t value for storing the normalized size of the file, or NULL.
-   * @param time optional pointer to a @a time_t value for storing the modification time of the file, or NULL.
+   * @param hash optional pointer to a @a size_t value for storing the hash of the file, or nullptr.
+   * @param size optional pointer to a @a size_t value for storing the normalized size of the file, or nullptr.
+   * @param time optional pointer to a @a time_t value for storing the modification time of the file, or nullptr.
    * @return true if the file info was found, false otherwise.
    */
-  bool getLoadedFileInfo(const string& filename, string* comment, size_t* hash = NULL, size_t* size = NULL,
-      time_t* time = NULL) const;
+  bool getLoadedFileInfo(const string& filename, string* comment, size_t* hash = nullptr, size_t* size = nullptr,
+      time_t* time = nullptr) const;
 
   /**
    * Get the stored @a Message instances for the key.
    * @param key the key of the @a Message.
-   * @return the found @a Message instances, or NULL.
+   * @return the found @a Message instances, or nullptr.
    * Note: the caller may not free the returned instances.
    */
   const vector<Message*>* getByKey(uint64_t key) const;
@@ -1356,7 +1378,7 @@ class MessageMap : public MappedFileReader {
    * @param levels the access levels to match.
    * @param isWrite whether this is a write message.
    * @param isPassive whether this is a passive message.
-   * @return the @a Message instance, or NULL.
+   * @return the @a Message instance, or nullptr.
    * Note: the caller may not free the returned instance.
    */
   Message* find(const string& circuit, const string& name, const string& levels, bool isWrite,
@@ -1396,7 +1418,7 @@ class MessageMap : public MappedFileReader {
    * @param withPassive true to include passive messages (default true).
    * @param onlyAvailable true to include only available messages (default true), false to also include messages that
    * are currently not available (e.g. due to unresolved or false conditions).
-   * @return the @a Message instance, or NULL.
+   * @return the @a Message instance, or nullptr.
    * Note: the caller may not free the returned instance.
    */
   Message* find(const MasterSymbolString& master, bool anyDestination = false, bool withRead = true,
@@ -1465,7 +1487,7 @@ class MessageMap : public MappedFileReader {
 
   /**
    * Get the next @a Message to poll.
-   * @return the next @a Message to poll, or NULL.
+   * @return the next @a Message to poll, or nullptr.
    * Note: the caller may not free the returned instance.
    */
   Message* getNextPoll();

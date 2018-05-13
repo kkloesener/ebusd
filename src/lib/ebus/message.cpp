@@ -82,7 +82,7 @@ static const char* defaultMessageFieldMap[] = {  // access level not included in
 extern DataFieldTemplates* getTemplates(const string& filename);
 
 extern result_t loadDefinitionsFromConfigPath(FileReader* reader, const string& filename, bool verbose,
-    map<string, string>* defaults, string* errorDescription);
+    map<string, string>* defaults, string* errorDescription, bool replace = false);
 
 
 Message::Message(const string& circuit, const string& level, const string& name,
@@ -115,7 +115,7 @@ Message::Message(const string& circuit, const string& level, const string& name,
       m_id({pb, sb}), m_key(createKey(pb, sb, broadcast)),
       m_data(data), m_deleteData(deleteData),
       m_pollPriority(0),
-      m_usedByCondition(false), m_isScanMessage(true), m_condition(NULL),
+      m_usedByCondition(false), m_isScanMessage(true), m_condition(nullptr),
       m_lastUpdateTime(0), m_lastChangeTime(0), m_pollCount(0), m_lastPollTime(0) {
 }
 
@@ -123,7 +123,7 @@ Message::Message(const string& circuit, const string& level, const string& name,
 /**
  * Helper method for getting a default if the value is empty.
  * @param value the value to check.
- * @param defaults a @a vector of defaults, or NULL.
+ * @param defaults a @a vector of defaults, or nullptr.
  * @param pos the position in defaults.
  * @param replaceStar whether to replace a star in the default with the value.
  * If there is no star in the default and the value is empty, use the complete
@@ -433,7 +433,7 @@ result_t Message::create(const string& filename, const DataFieldTemplates* templ
   if (subIt != subRowDefaults.end()) {
     subRows->insert(subRows->begin(), subIt->second.begin(), subIt->second.end());
   }
-  const DataField* data = NULL;
+  const DataField* data = nullptr;
   if (subRows->empty()) {
     vector<const SingleDataField*> fields;
     data = new DataFieldSet("", fields);
@@ -474,8 +474,8 @@ result_t Message::create(const string& filename, const DataFieldTemplates* templ
   return RESULT_OK;
 }
 
-Message* Message::createScanMessage(bool broadcast) {
-  return new Message("scan", "", "", 0x07, 0x04, broadcast, DataFieldSet::getIdentFields(), !broadcast);
+Message* Message::createScanMessage(bool broadcast, bool deleteData) {
+  return new Message("scan", "", "", 0x07, 0x04, broadcast, DataFieldSet::getIdentFields(), deleteData);
 }
 
 bool Message::extractFieldNames(const string& str, bool checkAbbreviated, vector<string>* fields) {
@@ -610,7 +610,7 @@ void Message::setUsedByCondition() {
 }
 
 bool Message::isAvailable() {
-  return (m_condition == NULL) || m_condition->isTrue();
+  return (m_condition == nullptr) || m_condition->isTrue();
 }
 
 bool Message::hasField(const char* fieldName, bool numeric) const {
@@ -653,7 +653,7 @@ result_t Message::prepareMasterPart(size_t index, char separator, istringstream*
   for (size_t i = 2; i < m_id.size(); i++) {
     master->push_back(m_id[i]);
   }
-  result_t result = m_data->write(separator, getIdLength(), input, master, NULL);
+  result_t result = m_data->write(separator, getIdLength(), input, master, nullptr);
   if (result != RESULT_OK) {
     return result;
   }
@@ -667,7 +667,7 @@ result_t Message::prepareSlave(istringstream* input, SlaveSymbolString* slave) {
   }
   slave->clear();
   slave->push_back(0);  // length, will be set later
-  result_t result = m_data->write(UI_FIELD_SEPARATOR, 0, input, slave, NULL);
+  result_t result = m_data->write(UI_FIELD_SEPARATOR, 0, input, slave, nullptr);
   if (result != RESULT_OK) {
     return result;
   }
@@ -730,7 +730,7 @@ result_t Message::decodeLastData(bool master, bool leadingSeparator, const char*
   if (result < RESULT_OK) {
     return result;
   }
-  if (result == RESULT_EMPTY && (fieldName != NULL || fieldIndex >= 0)) {
+  if (result == RESULT_EMPTY && (fieldName != nullptr || fieldIndex >= 0)) {
     return RESULT_ERR_NOTFOUND;
   }
   return result;
@@ -763,7 +763,7 @@ result_t Message::decodeLastData(bool leadingSeparator, const char* fieldName,
       result = RESULT_OK;  // OK if at least one part was non-empty
     }
   }
-  if (result == RESULT_EMPTY && (fieldName != NULL || fieldIndex >= 0)) {
+  if (result == RESULT_EMPTY && (fieldName != nullptr || fieldIndex >= 0)) {
     return RESULT_ERR_NOTFOUND;
   }
   return result;
@@ -808,7 +808,7 @@ bool Message::isLessPollWeight(const Message* other) const {
 
 void Message::dumpHeader(const vector<string>* fieldNames, ostream* output) {
   bool first = true;
-  if (fieldNames == NULL) {
+  if (fieldNames == nullptr) {
     for (const auto& fieldName : defaultMessageFieldMap) {
       if (first) {
         first = false;
@@ -831,7 +831,7 @@ void Message::dumpHeader(const vector<string>* fieldNames, ostream* output) {
 
 void Message::dump(const vector<string>* fieldNames, bool withConditions, ostream* output) const {
   bool first = true;
-  if (fieldNames == NULL) {
+  if (fieldNames == nullptr) {
     for (const auto& fieldName : knownFieldNamesFull) {
       if (fieldName == FIELNAME_LEVEL) {
         continue;  // access level not included in default dump format
@@ -857,7 +857,7 @@ void Message::dump(const vector<string>* fieldNames, bool withConditions, ostrea
 
 void Message::dumpField(const string& fieldName, bool withConditions, ostream* output) const {
   if (fieldName == "type") {
-    if (withConditions && m_condition != NULL) {
+    if (withConditions && m_condition != nullptr) {
       m_condition->dump(false, output);
     }
     if (m_isPassive) {
@@ -976,7 +976,7 @@ void Message::decodeJson(bool leadingSeparator, bool appendDirection, bool addRa
       }
       size_t pos = (size_t)output->tellp();
       *output << ",\n    \"fields\": {";
-      result_t dret = decodeLastData(false, NULL, -1, outputFormat, output);
+      result_t dret = decodeLastData(false, nullptr, -1, outputFormat, output);
       if (dret == RESULT_OK) {
         *output << "\n    }";
       } else {
@@ -1023,9 +1023,9 @@ ChainedMessage::ChainedMessage(const string& circuit, const string& level, const
 ChainedMessage::~ChainedMessage() {
   for (size_t index = 0; index < m_ids.size(); index++) {
     delete m_lastMasterDatas[index];
-    m_lastMasterDatas[index] = NULL;
+    m_lastMasterDatas[index] = nullptr;
     delete m_lastSlaveDatas[index];
-    m_lastSlaveDatas[index] = NULL;
+    m_lastSlaveDatas[index] = nullptr;
   }
   free(m_lastMasterDatas);
   free(m_lastSlaveDatas);
@@ -1113,7 +1113,7 @@ result_t ChainedMessage::prepareMasterPart(size_t index, char separator, istring
     return RESULT_ERR_NOTFOUND;
   }
   MasterSymbolString allData;
-  result_t result = m_data->write(separator, 0, input, &allData, NULL);
+  result_t result = m_data->write(separator, 0, input, &allData, nullptr);
   if (result != RESULT_OK) {
     return result;
   }
@@ -1271,14 +1271,14 @@ void ChainedMessage::dumpField(const string& fieldName, bool withConditions, ost
 Message* getFirstAvailable(const vector<Message*>& messages, const MasterSymbolString* sameIdExtAs,
     const bool onlyAvailable = true) {
   for (auto message : messages) {
-    if (sameIdExtAs && !message->checkId(*sameIdExtAs, NULL)) {
+    if (sameIdExtAs && !message->checkId(*sameIdExtAs, nullptr)) {
       continue;
     }
     if (!onlyAvailable || message->isAvailable()) {
       return message;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 /**
@@ -1288,7 +1288,7 @@ Message* getFirstAvailable(const vector<Message*>& messages, const MasterSymbolS
  * @param onlyAvailable true to include only available messages (default true), false to also include messages that
  * are currently not available (e.g. due to unresolved or false conditions).
  */
-Message* getFirstAvailable(const vector<Message*>& messages, const Message* sameIdExtAs = NULL,
+Message* getFirstAvailable(const vector<Message*>& messages, const Message* sameIdExtAs = nullptr,
     const bool onlyAvailable = true) {
   for (auto message : messages) {
     if (sameIdExtAs && !message->checkId(*sameIdExtAs)) {
@@ -1298,7 +1298,7 @@ Message* getFirstAvailable(const vector<Message*>& messages, const Message* same
       return message;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 /**
@@ -1445,7 +1445,7 @@ result_t Condition::create(const string& condName, const map<string, string>& ro
 
 SimpleCondition* SimpleCondition::derive(const string& valueList) const {
   if (valueList.empty()) {
-    return NULL;
+    return nullptr;
   }
   string useValueList = valueList;
   string name = m_condName+useValueList;
@@ -1458,18 +1458,18 @@ SimpleCondition* SimpleCondition::derive(const string& valueList) const {
     vector<string> values;
     result = splitValues(useValueList, &values);
     if (result != RESULT_OK) {
-      return NULL;
+      return nullptr;
     }
     return new SimpleStringCondition(name, m_refName, m_circuit, m_level, m_name, m_dstAddress, m_field, values);
   }
   // numbers
   if (!isNumeric()) {
-    return NULL;
+    return nullptr;
   }
   vector<unsigned int> valueRanges;
   result = splitValues(useValueList, &valueRanges);
   if (result != RESULT_OK) {
-    return NULL;
+    return nullptr;
   }
   return new SimpleNumericCondition(name, m_refName, m_circuit, m_level, m_name, m_dstAddress, m_field, valueRanges);
 }
@@ -1496,7 +1496,7 @@ CombinedCondition* SimpleCondition::combineAnd(Condition* other) {
 
 result_t SimpleCondition::resolve(void (*readMessageFunc)(Message* message), MessageMap* messages,
     ostringstream* errorMessage) {
-  if (m_message == NULL) {
+  if (m_message == nullptr) {
     Message* message;
     if (m_name.length() == 0) {
       message = messages->getScanMessage(m_dstAddress);
@@ -1525,12 +1525,12 @@ result_t SimpleCondition::resolve(void (*readMessageFunc)(Message* message), Mes
       // clone the message with dedicated dstAddress if necessary
       uint64_t key = message->getDerivedKey(m_dstAddress);
       const vector<Message*>* derived = messages->getByKey(key);
-      if (derived == NULL) {
+      if (derived == nullptr) {
         message = message->derive(m_dstAddress, true);
         messages->add(true, message);
       } else {
         Message* first = getFirstAvailable(*derived, message);
-        if (first == NULL) {
+        if (first == nullptr) {
           *errorMessage << ": conditional derived message " << message->getCircuit() << "." << message->getName()
               << " for " << hex << setw(2) << setfill('0') << static_cast<unsigned>(m_dstAddress) << " not found";
           return RESULT_ERR_INVALID_ARG;
@@ -1540,7 +1540,7 @@ result_t SimpleCondition::resolve(void (*readMessageFunc)(Message* message), Mes
     }
 
     if (m_hasValues) {
-      if (!message->hasField(m_field.length() > 0 ? m_field.c_str() : NULL, isNumeric())) {
+      if (!message->hasField(m_field.length() > 0 ? m_field.c_str() : nullptr, isNumeric())) {
         *errorMessage << (isNumeric() ? ": numeric field " : ": string field ") << m_field << " not found";
         return RESULT_ERR_NOTFOUND;
       }
@@ -1551,7 +1551,7 @@ result_t SimpleCondition::resolve(void (*readMessageFunc)(Message* message), Mes
       messages->addPollMessage(true, message);
     }
   }
-  if (m_message->getLastUpdateTime() == 0 && readMessageFunc != NULL) {
+  if (m_message->getLastUpdateTime() == 0 && readMessageFunc != nullptr) {
     (*readMessageFunc)(m_message);
   }
   return RESULT_OK;
@@ -1575,7 +1575,7 @@ bool SimpleCondition::isTrue() {
 
 bool SimpleNumericCondition::checkValue(const Message* message, const string& field) {
   unsigned int value = 0;
-  result_t result = message->decodeLastDataNumField(field.length() == 0 ? NULL : field.c_str(), -1, &value);
+  result_t result = message->decodeLastDataNumField(field.length() == 0 ? nullptr : field.c_str(), -1, &value);
   if (result == RESULT_OK) {
     for (size_t i = 0; i+1 < m_valueRanges.size(); i+=2) {
       if (m_valueRanges[i] <= value && value <= m_valueRanges[i+1]) {
@@ -1590,7 +1590,7 @@ bool SimpleNumericCondition::checkValue(const Message* message, const string& fi
 
 bool SimpleStringCondition::checkValue(const Message* message, const string& field) {
   ostringstream output;
-  result_t result = message->decodeLastData(false, field.length() == 0 ? NULL : field.c_str(), -1, 0, &output);
+  result_t result = message->decodeLastData(false, field.length() == 0 ? nullptr : field.c_str(), -1, 0, &output);
   if (result == RESULT_OK) {
     string value = output.str();
     for (size_t i = 0; i < m_values.size(); i++) {
@@ -1733,22 +1733,35 @@ result_t LoadInstruction::execute(MessageMap* messages, ostringstream* log) {
 
 vector<string> MessageMap::s_noFiles;
 
-result_t MessageMap::add(bool storeByName, Message* message) {
+result_t MessageMap::add(bool storeByName, Message* message, bool replace) {
   uint64_t key = message->getKey();
   bool conditional = message->isConditional();
   if (!m_addAll) {
+    lock();
     const auto keyIt = m_messagesByKey.find(key);
     if (keyIt != m_messagesByKey.end()) {
-      Message* other = getFirstAvailable(keyIt->second, message);
-      if (other != NULL) {
-        if (!conditional) {
-          return RESULT_ERR_DUPLICATE;  // duplicate key
+      if (replace) {
+        vector<Message*> removeMessages;
+        for (auto other : keyIt->second) {
+          if (!other || !message->checkId(*other)) {
+            continue;
+          }
+          if (!conditional || !other->isConditional() || other->m_condition == message->m_condition) {
+            removeMessages.push_back(other);
+          }
         }
-        if (!other->isConditional()) {
+        for (auto other : removeMessages) {
+          remove(other);
+        }
+      } else {
+        Message *other = getFirstAvailable(keyIt->second, message);
+        if (other != nullptr && (!conditional || !other->isConditional())) {
+          unlock();
           return RESULT_ERR_DUPLICATE;  // duplicate key
         }
       }
     }
+    unlock();
   }
   bool isPassive = message->isPassive();
   if (storeByName) {
@@ -1763,13 +1776,29 @@ result_t MessageMap::add(bool storeByName, Message* message) {
     string suffix = FIELD_SEPARATOR + name + (isPassive ? "P" : (isWrite ? "W" : "R"));
     string nameKey = circuit + suffix;
     if (!m_addAll) {
+      lock();
       const auto nameIt = m_messagesByName.find(nameKey);
       if (nameIt != m_messagesByName.end()) {
         vector<Message*>* messages = &nameIt->second;
-        if (!message->isConditional() || !messages->front()->isConditional()) {
+        if (replace) {
+          vector<Message*> removeMessages;
+          for (auto other : *messages) {
+            if (!other) {
+              continue;
+            }
+            if (!conditional || !other->isConditional() || other->m_condition == message->m_condition) {
+              removeMessages.push_back(other);
+            }
+          }
+          for (auto other : removeMessages) {
+            remove(other);
+          }
+        } else if (!conditional || !messages->front()->isConditional()) {
+          unlock();
           return RESULT_ERR_DUPLICATE_NAME;  // duplicate key
         }
       }
+      unlock();
     }
     m_messagesByName[nameKey].push_back(message);
     nameKey = suffix;  // also store without circuit
@@ -1806,6 +1835,71 @@ result_t MessageMap::add(bool storeByName, Message* message) {
   }
   m_messagesByKey[key].push_back(message);
   return RESULT_OK;
+}
+
+void MessageMap::remove(Message* message) {
+  if (message == nullptr) {
+    return;
+  }
+  lock();
+  uint64_t key = message->getKey();
+  bool conditional = message->isConditional();
+  const auto keyIt = m_messagesByKey.find(key);
+  bool deleted = false;
+  if (keyIt != m_messagesByKey.end()) {
+    vector<Message*> messages = keyIt->second;
+    for (auto it = messages.begin(); it != messages.end(); ) {
+      Message* other = *it;
+      if (other == message) {
+        if (!deleted) {
+          deleted = true;
+          delete(other);
+        }
+        messages.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    if (messages.empty()) {
+      m_messagesByKey.erase(keyIt);
+    }
+  }
+  bool storedByName = false;
+  for (auto nameIt = m_messagesByName.begin(); nameIt != m_messagesByName.end(); ) {
+    vector<Message*> messages = nameIt->second;
+    for (auto it = messages.begin(); it != messages.end(); ) {
+      Message* other = *it;
+      if (other == message) {
+        storedByName = true;
+        if (!deleted) {
+          deleted = true;
+          delete(other);
+        }
+        messages.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    if (messages.empty()) {
+      m_messagesByName.erase(nameIt);
+    } else {
+      ++nameIt;
+    }
+  }
+  if (storedByName) {
+    bool isPassive = message->isPassive();
+    m_messageCount--;
+    if (conditional) {
+      m_conditionalMessageCount--;
+    }
+    if (isPassive) {
+      m_passiveMessageCount--;
+    }
+  }
+  if (message->getPollPriority() > 0) {
+    m_pollMessages.remove(message);
+  }
+  unlock();
 }
 
 result_t MessageMap::getFieldMap(const string& preferLanguage, vector<string>* row, string* errorDescription) const {
@@ -1916,9 +2010,9 @@ result_t MessageMap::addDefaultFromFile(const string& filename, unsigned int lin
       *errorDescription = "condition "+type+" already defined";
       return RESULT_ERR_DUPLICATE_NAME;
     }
-    SimpleCondition* condition = NULL;
+    SimpleCondition* condition = nullptr;
     result_t result = Condition::create(type, defaults, row, &condition);
-    if (condition == NULL || result != RESULT_OK) {
+    if (condition == nullptr || result != RESULT_OK) {
       *errorDescription = "invalid condition";
       return result;
     }
@@ -1983,12 +2077,12 @@ result_t MessageMap::readConditions(const string& filename, string* types, strin
       types->erase(0, pos+1);
     } else {
       bool store = false;
-      *condition = NULL;
+      *condition = nullptr;
       while ((pos=types->find(']')) != string::npos) {
         // simple condition
         string key = filename+":"+types->substr(1, pos-1);
         it = m_conditions.find(key);
-        Condition* add = NULL;
+        Condition* add = nullptr;
         if (it == m_conditions.end()) {
           // check for on-the-fly condition
           size_t sep = key.find_first_of("=<>", filename.length()+1);
@@ -1997,14 +2091,14 @@ result_t MessageMap::readConditions(const string& filename, string* types, strin
             if (it != m_conditions.end()) {
               // derive from another condition
               add = it->second->derive(key.substr(sep));
-              if (add == NULL) {
+              if (add == nullptr) {
                 *errorDescription = "derive condition with values "+key.substr(sep)+" failed";
                 return RESULT_ERR_INVALID_ARG;
               }
               m_conditions[key] = add;  // store derived condition
             }
           }
-          if (add == NULL) {
+          if (add == nullptr) {
             // shared condition not available
             *errorDescription = "condition "+types->substr(1, pos-1)+" not defined";
             return RESULT_ERR_NOTFOUND;
@@ -2091,7 +2185,7 @@ bool MessageMap::extractDefaultsFromFilename(const string& filename, map<string,
         remain.erase(0, pos);
         pos = remain.find('.', 1);  // check for ".SUFFIX."
       }
-      if (pos != string::npos && pos == 2 && remain[1] >= '0' && remain[1] <= '9') {
+      if (pos == 2 && remain[1] >= '0' && remain[1] <= '9') {
         suffix = remain.substr(0, 2);
         remain.erase(0, pos);
       }
@@ -2105,7 +2199,7 @@ bool MessageMap::extractDefaultsFromFilename(const string& filename, map<string,
 }
 
 result_t MessageMap::readFromStream(istream* stream, const string& filename, const time_t& mtime, bool verbose,
-    map<string, string>* defaults, string* errorDescription, size_t* hash, size_t* size) {
+    map<string, string>* defaults, string* errorDescription, bool replace, size_t* hash, size_t* size) {
   size_t localHash, localSize;
   if (!hash) {
     hash = &localHash;
@@ -2113,8 +2207,8 @@ result_t MessageMap::readFromStream(istream* stream, const string& filename, con
   if (!size) {
     size = &localSize;
   }
-  result_t result = MappedFileReader::readFromStream(stream, filename, mtime, verbose, defaults, errorDescription, hash,
-                                                     size);
+  result_t result
+  = MappedFileReader::readFromStream(stream, filename, mtime, verbose, defaults, errorDescription, replace, hash, size);
   if (defaults) {
     string circuit = AttributedItem::pluck("circuit", defaults);
     if (!circuit.empty() && m_circuitData.find(circuit) == m_circuitData.end()) {
@@ -2134,8 +2228,8 @@ result_t MessageMap::readFromStream(istream* stream, const string& filename, con
 }
 
 result_t MessageMap::addFromFile(const string& filename, unsigned int lineNo, map<string, string>* row,
-    vector< map<string, string> >* subRows, string* errorDescription) {
-  Condition* condition = NULL;
+    vector< map<string, string> >* subRows, string* errorDescription, bool replace) {
+  Condition* condition = nullptr;
   string types = AttributedItem::pluck("type", row);
   result_t result = readConditions(filename, &types, errorDescription, &condition);
   if (result != RESULT_OK) {
@@ -2148,9 +2242,9 @@ result_t MessageMap::addFromFile(const string& filename, unsigned int lineNo, ma
       return RESULT_ERR_INVALID_ARG;
     }
     types = types.substr(1);
-    Instruction* instruction = NULL;
+    Instruction* instruction = nullptr;
     result = Instruction::create(filename, types, condition, *row, getDefaults()[""], &instruction);
-    if (instruction == NULL || result != RESULT_OK) {
+    if (instruction == nullptr || result != RESULT_OK) {
       *errorDescription = "invalid instruction";
       return result;
     }
@@ -2188,7 +2282,7 @@ result_t MessageMap::addFromFile(const string& filename, unsigned int lineNo, ma
     }
     for (const auto message : messages) {
       if (result == RESULT_OK) {
-        result = add(true, message);
+        result = add(true, message, replace);
         if (result == RESULT_ERR_DUPLICATE_NAME) {
           *errorDescription = "invalid name";
         } else if (result == RESULT_ERR_DUPLICATE) {
@@ -2214,11 +2308,11 @@ Message* MessageMap::getScanMessage(symbol_t dstAddress) {
     return m_broadcastScanMessage;
   }
   if (!isValidAddress(dstAddress, true) || isMaster(dstAddress)) {
-    return NULL;
+    return nullptr;
   }
   uint64_t key = m_scanMessage->getDerivedKey(dstAddress);
   const vector<Message*>* msgs = getByKey(key);
-  if (msgs != NULL) {
+  if (msgs != nullptr) {
     return msgs->front();
   }
   Message* message = m_scanMessage->derive(dstAddress, true);
@@ -2230,7 +2324,7 @@ result_t MessageMap::resolveConditions(bool verbose, string* errorDescription) {
   result_t overallResult = RESULT_OK;
   for (const auto& it : m_conditions) {
     Condition* condition = it.second;
-    result_t result = resolveCondition(NULL, condition, errorDescription);
+    result_t result = resolveCondition(nullptr, condition, errorDescription);
     if (result != RESULT_OK) {
       overallResult = result;
     }
@@ -2267,10 +2361,10 @@ result_t MessageMap::executeInstructions(void (*readMessageFunc)(Message* messag
         continue;
       }
       Condition* condition = instruction->getCondition();
-      bool execute = m_addAll || condition == NULL;
+      bool execute = m_addAll || condition == nullptr;
       if (!execute) {
         string errorDescription;
-        result_t result = resolveCondition(instruction->isSingleton()?readMessageFunc:NULL, condition,
+        result_t result = resolveCondition(instruction->isSingleton()?readMessageFunc:nullptr, condition,
             &errorDescription);
         if (result != RESULT_OK) {
           overallResult = result;
@@ -2380,7 +2474,7 @@ const vector<Message*>* MessageMap::getByKey(uint64_t key) const {
   if (it != m_messagesByKey.end()) {
     return &it->second;
   }
-  return NULL;
+  return nullptr;
 }
 
 Message* MessageMap::find(const string& circuit, const string& name, const string& levels, bool isWrite,
@@ -2407,7 +2501,7 @@ Message* MessageMap::find(const string& circuit, const string& name, const strin
       }
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 void MessageMap::findAll(const string& circuit, const string& name, const string& levels,
@@ -2480,7 +2574,7 @@ Message* MessageMap::find(const MasterSymbolString& master, bool anyDestination,
   uint64_t baseKey = Message::createKey(master,
       anyDestination || master[1] != BROADCAST ? m_maxIdLength : m_maxBroadcastIdLength, anyDestination);
   if (baseKey == INVALID_KEY) {
-    return NULL;
+    return nullptr;
   }
   size_t maxIdLength = Message::getKeyLength(baseKey);
   for (size_t idLength = maxIdLength; true; idLength--) {
@@ -2542,7 +2636,7 @@ Message* MessageMap::find(const MasterSymbolString& master, bool anyDestination,
     }
   }
 
-  return NULL;
+  return nullptr;
 }
 
 void MessageMap::invalidateCache(Message* message) {
@@ -2562,7 +2656,7 @@ void MessageMap::invalidateCache(Message* message) {
 }
 
 void MessageMap::addPollMessage(bool toFront, Message* message) {
-  if (message != NULL && message->getPollPriority() > 0) {
+  if (message != nullptr && message->getPollPriority() > 0) {
     lock();
     message->m_lastPollTime = toFront ? 0 : m_pollMessages.size();
     m_pollMessages.push(message);
@@ -2655,7 +2749,7 @@ void MessageMap::clear() {
 
 Message* MessageMap::getNextPoll() {
   if (m_pollMessages.empty()) {
-    return NULL;
+    return nullptr;
   }
   Message* ret = m_pollMessages.top();
   m_pollMessages.pop();
@@ -2667,7 +2761,7 @@ Message* MessageMap::getNextPoll() {
 
 void MessageMap::dump(bool withConditions, ostream* output) const {
   bool first = true;
-  Message::dumpHeader(NULL, output);
+  Message::dumpHeader(nullptr, output);
   *output << endl;
   for (const auto it : m_messagesByName) {
     if (it.first[0] == FIELD_SEPARATOR) {  // skip instances stored multiple times (key starting with "-")
@@ -2683,7 +2777,7 @@ void MessageMap::dump(bool withConditions, ostream* output) const {
         } else {
           *output << endl;
         }
-        message->dump(NULL, withConditions, output);
+        message->dump(nullptr, withConditions, output);
       }
     } else {
       Message* message = getFirstAvailable(it.second);
@@ -2695,7 +2789,7 @@ void MessageMap::dump(bool withConditions, ostream* output) const {
       } else {
         *output << endl;
       }
-      message->dump(NULL, withConditions, output);
+      message->dump(nullptr, withConditions, output);
     }
   }
   if (!first) {

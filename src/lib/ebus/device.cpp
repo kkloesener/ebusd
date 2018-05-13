@@ -43,12 +43,16 @@ namespace ebusd {
 
 #define MTU 1540
 
+#ifndef POLLRDHUP
+#define POLLRDHUP 0
+#endif
+
 Device::~Device() {
   close();
 }
 
 Device* Device::create(const char* name, bool checkDevice, bool readOnly, bool initialSend) {
-  if (strchr(name, '/') == NULL && strchr(name, ':') != NULL) {
+  if (strchr(name, '/') == nullptr && strchr(name, ':') != nullptr) {
     char* in = strdup(name);
     bool udp = false;
     char* addrpos = in;
@@ -57,24 +61,24 @@ Device* Device::create(const char* name, bool checkDevice, bool readOnly, bool i
       addrpos += 4;
       portpos = strchr(addrpos, ':');
     }
-    if (portpos == NULL) {
+    if (portpos == nullptr) {
       free(in);
-      return NULL;  // invalid protocol or missing port
+      return nullptr;  // invalid protocol or missing port
     }
     result_t result = RESULT_OK;
     unsigned int port = parseInt(portpos+1, 10, 1, 65535, &result);
     if (result != RESULT_OK) {
       free(in);
-      return NULL;  // invalid port
+      return nullptr;  // invalid port
     }
     struct sockaddr_in address;
     memset(reinterpret_cast<char*>(&address), 0, sizeof(address));
     *portpos = 0;
     if (inet_aton(addrpos, &address.sin_addr) == 0) {
       struct hostent* h = gethostbyname(addrpos);
-      if (h == NULL) {
+      if (h == nullptr) {
         free(in);
-        return NULL;  // invalid host
+        return nullptr;  // invalid host
       }
       memcpy(&address.sin_addr, h->h_addr_list[0], h->h_length);
     }
@@ -110,7 +114,7 @@ result_t Device::send(symbol_t value) {
   if (m_readOnly || write(value) != 1) {
     return RESULT_ERR_SEND;
   }
-  if (m_listener != NULL) {
+  if (m_listener != nullptr) {
     m_listener->notifyDeviceData(value, false);
   }
   return RESULT_OK;
@@ -135,22 +139,29 @@ result_t Device::recv(unsigned int timeout, symbol_t* value) {
     memset(fds, 0, sizeof(fds));
 
     fds[0].fd = m_fd;
-    fds[0].events = POLLIN;
-
-    ret = ppoll(fds, nfds, &tdiff, NULL);
+    fds[0].events = POLLIN | POLLERR | POLLHUP | POLLRDHUP;
+    ret = ppoll(fds, nfds, &tdiff, nullptr);
+    if (ret >= 0 && fds[0].revents & (POLLERR | POLLHUP | POLLRDHUP)) {
+      ret = -1;
+    }
 #else
 #ifdef HAVE_PSELECT
-    fd_set readfds;
+    fd_set readfds, exceptfds;
 
     FD_ZERO(&readfds);
+    FD_ZERO(&exceptfds);
     FD_SET(m_fd, &readfds);
 
-    ret = pselect(m_fd + 1, &readfds, NULL, NULL, &tdiff, NULL);
+    ret = pselect(m_fd + 1, &readfds, nullptr, &exceptfds, &tdiff, nullptr);
+    if (ret >= 1 && FD_ISSET(m_fd, &exceptfds)) {
+      ret = -1;
+    }
 #else
     ret = 1;  // ignore timeout if neither ppoll nor pselect are available
 #endif
 #endif
     if (ret == -1) {
+      close();
       return RESULT_ERR_DEVICE;
     }
     if (ret == 0) {
@@ -164,9 +175,10 @@ result_t Device::recv(unsigned int timeout, symbol_t* value) {
     return RESULT_ERR_EOF;
   }
   if (nbytes < 0) {
+    close();
     return RESULT_ERR_DEVICE;
   }
-  if (m_listener != NULL) {
+  if (m_listener != nullptr) {
     m_listener->notifyDeviceData(*value, true);
   }
   return RESULT_OK;
@@ -304,10 +316,14 @@ result_t NetworkDevice::open() {
   return RESULT_OK;
 }
 
+void NetworkDevice::close() {
+  m_bufLen = 0;  // flush read buffer
+  Device::close();
+}
+
 void NetworkDevice::checkDevice() {
   int cnt;
   if (ioctl(m_fd, FIONREAD, &cnt) < 0) {
-    m_bufLen = 0;  // flush read buffer
     close();
   }
 }

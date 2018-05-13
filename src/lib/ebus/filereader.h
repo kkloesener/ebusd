@@ -79,10 +79,10 @@ class FileReader {
    * Open a file as stream for reading.
    * @param filename the name of the file being read.
    * @param errorDescription a string in which to store the error description in case of error.
-   * @param time optional pointer to a @a time_t value for storing the modification time of the file, or NULL.
-   * @return the opened @a istream on success, or NULL on error.
+   * @param time optional pointer to a @a time_t value for storing the modification time of the file, or nullptr.
+   * @return the opened @a istream on success, or nullptr on error.
    */
-  static istream* openFile(const string& filename, string* errorDescription, time_t* time = NULL);
+  static istream* openFile(const string& filename, string* errorDescription, time_t* time = nullptr);
 
   /**
    * Read the definitions from a stream.
@@ -90,14 +90,16 @@ class FileReader {
    * @param filename the relative name of the file being read.
    * @param mtime a @a time_t value with the modification time of the file.
    * @param verbose whether to verbosely log problems.
-   * @param defaults the default values by name (potentially overwritten by file name), or NULL to not use defaults.
+   * @param defaults the default values by name (potentially overwritten by file name), or nullptr to not use defaults.
    * @param errorDescription a string in which to store the error description in case of error.
-   * @param hash optional pointer to a @a size_t value for storing the hash of the file, or NULL.
-   * @param size optional pointer to a @a size_t value for storing the normalized size of the file, or NULL.
+   * @param replace whether to replace an already existing entry.
+   * @param hash optional pointer to a @a size_t value for storing the hash of the file, or nullptr.
+   * @param size optional pointer to a @a size_t value for storing the normalized size of the file, or nullptr.
    * @return @a RESULT_OK on success, or an error code.
    */
   virtual result_t readFromStream(istream* stream, const string& filename, const time_t& mtime, bool verbose,
-      map<string, string>* defaults, string* errorDescription, size_t* hash = NULL, size_t* size = NULL);
+      map<string, string>* defaults, string* errorDescription, bool replace = false, size_t* hash = nullptr,
+      size_t* size = nullptr);
 
   /**
    * Read a single line definition from the stream.
@@ -107,12 +109,13 @@ class FileReader {
    * @param lineNo the last line number (incremented with each line read).
    * @param row the definition row to clear and update with the read data (for performance reasons only).
    * @param errorDescription a string in which to store the error description in case of error.
-   * @param hash optional pointer to a @a size_t value for updating with the hash of the line, or NULL.
-   * @param size optional pointer to a @a size_t value for updating with the normalized length of the line, or NULL.
+   * @param replace whether to replace an already existing entry.
+   * @param hash optional pointer to a @a size_t value for updating with the hash of the line, or nullptr.
+   * @param size optional pointer to a @a size_t value for updating with the normalized length of the line, or nullptr.
    * @return @a RESULT_OK on success, or an error code.
    */
   virtual result_t readLineFromStream(istream* stream, const string& filename, bool verbose,
-      unsigned int* lineNo, vector<string>* row, string* errorDescription, size_t* hash, size_t* size);
+      unsigned int* lineNo, vector<string>* row, string* errorDescription, bool replace, size_t* hash, size_t* size);
 
   /**
    * Add a definition that was read from a file.
@@ -120,10 +123,11 @@ class FileReader {
    * @param lineNo the current line number in the file being read.
    * @param row the definition row (allowed to be modified).
    * @param errorDescription a string in which to store the error description in case of error.
+   * @param replace whether to replace an already existing entry.
    * @return @a RESULT_OK on success, or an error code.
    */
   virtual result_t addFromFile(const string& filename, unsigned int lineNo, vector<string>* row,
-      string* errorDescription) = 0;
+      string* errorDescription, bool replace) = 0;
 
   /**
    * Left and right trim the string.
@@ -142,12 +146,12 @@ class FileReader {
    * @param stream the @a istream to read from.
    * @param row the @a vector to which to add the fields. This will be empty for completely empty and comment lines.
    * @param lineNo the current line number (incremented with each line read).
-   * @param hash optional pointer to a @a size_t value for combining the hash of the line with, or NULL.
-   * @param size optional pointer to a @a size_t value to add the trimmed line length to, or NULL.
+   * @param hash optional pointer to a @a size_t value for combining the hash of the line with, or nullptr.
+   * @param size optional pointer to a @a size_t value to add the trimmed line length to, or nullptr.
    * @return true if there are more lines to read, false when there are no more lines left.
    */
   static bool splitFields(istream* stream, vector<string>* row, unsigned int* lineNo,
-      size_t* hash = NULL, size_t* size = NULL);
+      size_t* hash = nullptr, size_t* size = nullptr);
 
   /**
    * Format the specified hash as 8 hex digits to the output stream.
@@ -205,25 +209,26 @@ class MappedFileReader : public FileReader {
 
   // @copydoc
   result_t readFromStream(istream* stream, const string& filename, const time_t& mtime, bool verbose,
-      map<string, string>* defaults, string* errorDescription, size_t* hash = NULL, size_t* size = NULL) override;
+      map<string, string>* defaults, string* errorDescription, bool replace = false, size_t* hash = nullptr,
+      size_t* size = nullptr) override;
 
   /**
    * Extract default values from the file name.
    * @param filename the name of the file (without path)
    * @param defaults the default values by name to add to.
-   * @param destAddress optional pointer to a variable in which to store the numeric destination address, or NULL.
-   * @param software optional pointer to a in which to store the numeric software version, or NULL.
-   * @param hardware optional pointer to a in which to store the numeric hardware version, or NULL.
+   * @param destAddress optional pointer to a variable in which to store the numeric destination address, or nullptr.
+   * @param software optional pointer to a in which to store the numeric software version, or nullptr.
+   * @param hardware optional pointer to a in which to store the numeric hardware version, or nullptr.
    * @return true if the minimum parts were extracted, false otherwise.
    */
   virtual bool extractDefaultsFromFilename(const string& filename, map<string, string>* defaults,
-      symbol_t* destAddress = NULL, unsigned int* software = NULL, unsigned int* hardware = NULL) const {
+      symbol_t* destAddress = nullptr, unsigned int* software = nullptr, unsigned int* hardware = nullptr) const {
     return false;
   }
 
   // @copydoc
   result_t addFromFile(const string& filename, unsigned int lineNo, vector<string>* row,
-      string* errorDescription) override;
+      string* errorDescription, bool replace) override;
 
   /**
    * Get the field mapping from the given first line.
@@ -258,10 +263,11 @@ class MappedFileReader : public FileReader {
    * @param row the main definition row by field name (may be modified).
    * @param subRows the sub definition rows, each by field name (may be modified).
    * @param errorDescription a string in which to store the error description in case of error.
+   * @param replace whether to replace an already existing entry.
    * @return @a RESULT_OK on success, or an error code.
    */
   virtual result_t addFromFile(const string& filename, unsigned int lineNo, map<string, string>* row,
-      vector< map<string, string> >* subRows, string* errorDescription) = 0;
+      vector< map<string, string> >* subRows, string* errorDescription, bool replace = false) = 0;
 
   /**
    * @return a reference to all previously extracted default values by type and field name.

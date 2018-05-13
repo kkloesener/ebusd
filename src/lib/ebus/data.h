@@ -204,12 +204,18 @@ class DataField : public AttributedItem {
   virtual const DataField* clone() const = 0;
 
   /**
+   * Return whether this is a @a DataFieldSet.
+   * @return true if this is a @a DataFieldSet.
+   */
+  virtual bool isSet() const { return false; }
+
+  /**
    * Factory method for creating new instances.
    * @param isWriteMessage whether the field is part of a write message (default false).
    * @param isTemplate true for creating a template @a DataField.
    * @param isBroadcastOrMasterDestination true if the destination bus address is @a BRODCAST or a master address.
    * @param maxFieldLength the maximum allowed length of a single field (e.g. @a MAX_POS).
-   * @param templates the @a DataFieldTemplates to be referenced by name, or NULL.
+   * @param templates the @a DataFieldTemplates to be referenced by name, or nullptr.
    * @param rows the mapped field definition rows (may be modified).
    * @param errorDescription a string in which to store the error description in case of error.
    * @param returnField the variable in which to store the created instance.
@@ -252,10 +258,10 @@ class DataField : public AttributedItem {
   /**
    * Get the field count (excluding ignored fields).
    * @param partType the optional part to count, or @ pt_any.
-   * @param fieldName the optional field name to count, or NULL.
+   * @param fieldName the optional field name to count, or nullptr.
    * @return the field count (excluding ignored fields).
    */
-  virtual size_t getCount(PartType partType = pt_any, const char* fieldName = NULL) const = 0;
+  virtual size_t getCount(PartType partType = pt_any, const char* fieldName = nullptr) const = 0;
 
   /**
    * Get the specified field name.
@@ -274,7 +280,7 @@ class DataField : public AttributedItem {
 
   /**
    * Return whether the field is available.
-   * @param fieldName the name of the field to find, or NULL for any.
+   * @param fieldName the name of the field to find, or nullptr for any.
    * @param numeric true for a numeric field, false for a string field.
    * @return true if the field is available.
    */
@@ -284,7 +290,7 @@ class DataField : public AttributedItem {
    * Reads the numeric value from the @a SymbolString.
    * @param data the data @a SymbolString for reading binary data.
    * @param offset the additional offset to add for reading binary data.
-   * @param fieldName the name of the field to read, or NULL for the first field.
+   * @param fieldName the name of the field to read, or nullptr for the first field.
    * @param fieldIndex the optional index of the field (either named or overall), or -1.
    * @param output the variable in which to store the numeric value.
    * @return @a RESULT_OK on success,
@@ -319,7 +325,7 @@ class DataField : public AttributedItem {
    * @param separator the separator character between multiple fields.
    * @param offset the additional offset to add for writing binary data.
    * @param data the data @a SymbolString to write binary data to.
-   * @param usedLength the variable in which to store the used length in bytes, or NULL.
+   * @param usedLength the variable in which to store the used length in bytes, or nullptr.
    * @return @a RESULT_OK on success, or an error code.
    */
   virtual result_t write(char separator, size_t offset, istringstream* input,
@@ -401,7 +407,7 @@ class SingleDataField : public DataField {
   bool hasFullByteOffset(bool after) const;
 
   // @copydoc
-  size_t getCount(PartType partType = pt_any, const char* fieldName = NULL) const override;
+  size_t getCount(PartType partType = pt_any, const char* fieldName = nullptr) const override;
 
   // @copydoc
   virtual string getName(ssize_t fieldIndex) const {
@@ -460,7 +466,7 @@ class SingleDataField : public DataField {
    * @param input the @a istringstream to parse the formatted value from.
    * @param offset the offset in the @a SymbolString.
    * @param output the @a SymbolString to write the binary value to.
-   * @param usedLength the variable in which to store the used length in bytes, or NULL.
+   * @param usedLength the variable in which to store the used length in bytes, or nullptr.
    * @return @a RESULT_OK on success, or an error code.
    */
   virtual result_t writeSymbols(size_t offset, istringstream* input,
@@ -589,6 +595,7 @@ class ConstantDataField : public SingleDataField {
  * A set of @a DataField instances.
  */
 class DataFieldSet : public DataField {
+  friend class LoadableDataFieldSet;
  public:
   /**
    * Get the @a DataFieldSet for parsing the identification message (service 0x07 0x04).
@@ -637,10 +644,13 @@ class DataFieldSet : public DataField {
   const DataFieldSet* clone() const override;
 
   // @copydoc
+  bool isSet() const override { return true; };
+
+  // @copydoc
   size_t getLength(PartType partType, size_t maxLength) const override;
 
   // @copydoc
-  size_t getCount(PartType partType = pt_any, const char* fieldName = NULL) const override;
+  size_t getCount(PartType partType = pt_any, const char* fieldName = nullptr) const override;
 
   // @copydoc
   string getName(ssize_t fieldIndex) const override;
@@ -653,11 +663,11 @@ class DataFieldSet : public DataField {
   /**
    * Returns the @a SingleDataField at the specified index.
    * @param index the index of the @a SingleDataField to return.
-   * @return the @a SingleDataField at the specified index, or NULL.
+   * @return the @a SingleDataField at the specified index, or nullptr.
    */
   const SingleDataField* operator[](size_t index) const {
     if (index >= m_fields.size()) {
-      return NULL;
+      return nullptr;
     }
     return m_fields[index];
   }
@@ -689,17 +699,45 @@ class DataFieldSet : public DataField {
 
 
  private:
-  /** the @a DataFieldSet containing the ident message @a SingleDataField instances, or NULL. */
+  /** the @a DataFieldSet containing the ident message @a SingleDataField instances, or nullptr. */
   static DataFieldSet* s_identFields;
 
+ protected:
   /** the @a vector of @a SingleDataField instances part of this set. */
-  const vector<const SingleDataField*> m_fields;
+  vector<const SingleDataField*> m_fields;
 
   /** whether all fields have a unique name. */
   bool m_uniqueNames;
 
   /** the number of ignored fields. */
   size_t m_ignoredCount;
+};
+
+
+/**
+ * A special @a DataFieldSet that supports loading via @a MappedFileReader.
+ */
+class LoadableDataFieldSet : public DataFieldSet, public MappedFileReader {
+ public:
+  /**
+   * Constructs a new instance.
+   * @param name the field name.
+   * @param templates the @a DataFieldTemplates instance to use.
+   */
+  LoadableDataFieldSet(const string& name, DataFieldTemplates* templates)
+    : DataFieldSet(name, vector<const SingleDataField*>()), MappedFileReader(false), m_templates(templates) {
+  }
+
+  // @copydoc
+  result_t getFieldMap(const string& preferLanguage, vector<string>* row, string* errorDescription) const override;
+
+  // @copydoc
+  result_t addFromFile(const string& filename, unsigned int lineNo, map<string, string>* row,
+      vector< map<string, string> >* subRows, string* errorDescription, bool replace) override;
+
+ private:
+  /** the @a DataFieldTemplates instance to use. */
+  DataFieldTemplates* m_templates;
 };
 
 
@@ -746,12 +784,12 @@ class DataFieldTemplates : public MappedFileReader {
 
   // @copydoc
   result_t addFromFile(const string& filename, unsigned int lineNo, map<string, string>* row,
-      vector< map<string, string> >* subRows, string* errorDescription) override;
+      vector< map<string, string> >* subRows, string* errorDescription, bool replace) override;
 
   /**
    * Gets the template @a DataField instance with the specified name.
    * @param name the name of the template to get.
-   * @return the template @a DataField instance, or NULL.
+   * @return the template @a DataField instance, or nullptr.
    * Note: the caller may not free the returned instance.
    */
   const DataField* get(const string& name) const;

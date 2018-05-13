@@ -131,11 +131,14 @@ class MqttHandler : public DataSink, public DataSource, public WaitThread {
   /** whether to publish a separate topic for each message field. */
   bool m_publishByField;
 
-  /** the mosquitto structure if initialized, or NULL. */
+  /** the mosquitto structure if initialized, or nullptr. */
   struct mosquitto* m_mosquitto;
 
   /** whether the connection to the broker is established. */
   bool m_connected;
+
+  /** whether the initial connect failed. */
+  bool m_initialConnectFailed;
 
   /** the last update check result. */
   string m_lastUpdateCheckResult;

@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIB_UTILS_HTTP_H_
-#define LIB_UTILS_HTTP_H_
+#ifndef LIB_UTILS_HTTPCLIENT_H_
+#define LIB_UTILS_HTTPCLIENT_H_
 
 #include <unistd.h>
 #include <cstdint>
@@ -30,7 +30,7 @@ typedef struct sockaddr_in socketaddress;
 
 namespace ebusd {
 
-/** \file lib/utils/http.h */
+/** \file lib/utils/httpclient.h */
 
 using std::string;
 using std::ifstream;
@@ -39,7 +39,6 @@ using std::ifstream;
  * Helper class for handling HTTP client requests.
  */
 class HttpClient {
-
  public:
   /**
    * Constructor.
@@ -66,7 +65,7 @@ class HttpClient {
    * @param uri the extracted URI starting with '/'.
    * @return true on success, false on failure.
    */
-  static bool parseUrl(const string& url, string& proto, string& host, uint16_t& port, string& uri);
+  static bool parseUrl(const string& url, string* proto, string* host, uint16_t* port, string* uri);
 
   /**
    * Connect to the specified server.
@@ -100,10 +99,10 @@ class HttpClient {
    * @param uri the URI string.
    * @param body the optional body to send.
    * @param response the response body from the server (or the HTTP header on error).
-   * @param time optional pointer to a @a time_t value for storing the modification time of the file, or NULL.
+   * @param time optional pointer to a @a time_t value for storing the modification time of the file, or nullptr.
    * @return true on success, false on error.
    */
-  bool get(const string& uri, const string& body, string& response, time_t* time = NULL);
+  bool get(const string& uri, const string& body, string* response, time_t* time = nullptr);
 
   /**
    * Execute a POST request.
@@ -112,19 +111,20 @@ class HttpClient {
    * @param response the response body from the server (or the HTTP header on error).
    * @return true on success, false on error.
    */
-  bool post(const string& uri, const string& body, string& response);
+  bool post(const string& uri, const string& body, string* response);
 
   /**
    * Execute an arbitrary request.
+   * @param method the method string.
    * @param uri the URI string.
    * @param body the optional body to send.
    * @param response the response body from the server (or the HTTP header on error).
-   * @param time optional pointer to a @a time_t value for storing the modification time of the file, or NULL.
+   * @param time optional pointer to a @a time_t value for storing the modification time of the file, or nullptr.
    * @return true on success, false on error.
    */
-  bool request(const string& method, const string& uri, const string& body, string& response, time_t* time = NULL);
+  bool request(const string& method, const string& uri, const string& body, string* response, time_t* time = nullptr);
 
-private:
+ private:
   /**
    * Read from the connected socket until the specified delimiter is found or the specified number of bytes was received.
    * @param delim the delimiter to find, or empty for reading the specified number of bytes.
@@ -132,9 +132,9 @@ private:
    * @param result the string to append the read data to and in which to find the delimiter.
    * @return the position of the delimiter if delimiter was set or the number of bytes received, or string::npos if not found.
    */
-  size_t readUntil(const string& delim, const size_t length, string& result);
+  size_t readUntil(const string& delim, const size_t length, string* result);
 
-private:
+ private:
   /** the @a TCPClient handling the traffic. */
   TCPClient m_client;
 
@@ -162,4 +162,4 @@ private:
 
 }  // namespace ebusd
 
-#endif  //LIB_UTILS_HTTP_H_
+#endif  // LIB_UTILS_HTTPCLIENT_H_
