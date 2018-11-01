@@ -567,7 +567,8 @@ result_t BusHandler::handleSymbol() {
 
   // receive next symbol (optionally check reception of sent symbol)
   symbol_t recvSymbol;
-  result = m_device->recv(timeout+m_transferLatency, &recvSymbol);
+  bool isAutoSyn = !sending && m_generateSynInterval == SYN_TIMEOUT && (m_state == bs_noSignal || m_state == bs_skip);
+  result = m_device->recv(timeout+(isAutoSyn ? 0 : m_transferLatency), &recvSymbol);
   if (sending) {
     clockGettime(&recvTime);
   }
@@ -897,7 +898,7 @@ result_t BusHandler::handleSymbol() {
         return setState(bs_skip, RESULT_ERR_INVALID_ARG);
       }
       istringstream input;  // TODO create input from database of internal variables
-      if (message == m_messages->getScanMessage()) {
+      if (message == m_messages->getScanMessage() || message == m_messages->getScanMessage(m_ownSlaveAddress)) {
         input.str(SCAN_ANSWER);
       }
       // build response and store in m_response for sending back to requesting master
