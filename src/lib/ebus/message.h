@@ -642,8 +642,8 @@ class Message : public AttributedItem {
   /** the system time when the message content was last changed, 0 for never. */
   time_t m_lastChangeTime;
 
-  /** the number of times this messages was already polled for. */
-  unsigned int m_pollCount;
+  /** the polling order of this message (roughly number of polls * priority). */
+  unsigned int m_pollOrder;
 
   /** the system time when this message was last polled for, 0 for never. */
   time_t m_lastPollTime;
@@ -1403,11 +1403,12 @@ class MessageMap : public MappedFileReader {
    * address), or 0 to ignore.
    * @param until the end time to which to add updates (exclusive, also removes messages with unset destination
    * address), or 0 to ignore.
+   * @param changedSince true to use the last change time for the since/until range, false to use the last seen time.
    * @param messages the @a deque to which to add the found @a Message instances.
    */
   void findAll(const string& circuit, const string& name, const string& levels,
     bool completeMatch, bool withRead, bool withWrite, bool withPassive, bool includeEmptyLevel, bool onlyAvailable,
-    time_t since, time_t until, deque<Message*>* messages) const;
+    time_t since, time_t until, bool changedSince, deque<Message*>* messages) const;
 
   /**
    * Find the @a Message instance for the specified master data.
